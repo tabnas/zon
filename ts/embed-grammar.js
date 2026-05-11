@@ -8,7 +8,7 @@ const path = require('path')
 
 const GRAMMAR_FILE = path.join(__dirname, 'zon-grammar.jsonic')
 const TS_FILE = path.join(__dirname, 'src', 'zon.ts')
-const GO_FILE = path.join(__dirname, 'go', 'zon.go')
+const GO_FILE = path.join(__dirname, '..', 'go', 'zon.go')
 
 const BEGIN = '// --- BEGIN EMBEDDED zon-grammar.jsonic ---'
 const END = '// --- END EMBEDDED zon-grammar.jsonic ---'
