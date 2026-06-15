@@ -19,7 +19,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	jsonic "github.com/jsonicjs/jsonic/go"
+	jsonic "github.com/tabnas/jsonic/go"
 )
 
 const Version = "0.1.1"

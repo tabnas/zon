@@ -7,10 +7,10 @@ tuples, enum literals, numeric bases, character literals, multi-line
 strings, and trailing commas.
 
 ```bash
-npm install @jsonic/zon
+npm install @tabnas/zon
 ```
 
-Requires `jsonic` >= 2 as a peer dependency.
+Requires `@tabnas/jsonic` >= 2 as a peer dependency.
 
 
 ## Tutorials
@@ -20,8 +20,8 @@ Requires `jsonic` >= 2 as a peer dependency.
 Register the plugin and parse a top-level struct literal:
 
 ```typescript
-import { Jsonic } from 'jsonic'
-import { Zon } from '@jsonic/zon'
+import { Jsonic } from '@tabnas/jsonic'
+import { Zon } from '@tabnas/zon'
 
 const j = Jsonic.make().use(Zon)
 
@@ -38,8 +38,8 @@ ZON files typically have nested structs mixed with tuple-style
 `paths` lists:
 
 ```typescript
-import { Jsonic } from 'jsonic'
-import { Zon } from '@jsonic/zon'
+import { Jsonic } from '@tabnas/jsonic'
+import { Zon } from '@tabnas/zon'
 
 const j = Jsonic.make().use(Zon)
 

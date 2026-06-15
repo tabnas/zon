@@ -1,16 +1,16 @@
 {
-  "name": "@jsonic/zon",
+  "name": "@tabnas/zon",
   "version": "0.1.2",
-  "description": "This plugin allows the [Jsonic](https://jsonic.senecajs.org) JSON parser to support Zig Object Notation (ZON) syntax.",
+  "description": "This plugin allows the [Tabnas](https://github.com/tabnas/parser) JSON parser to support Zig Object Notation (ZON) syntax.",
   "main": "dist/zon.js",
   "type": "commonjs",
   "browser": "zon.min.js",
   "types": "dist/zon.d.ts",
-  "homepage": "https://github.com/jsonicjs/zon",
+  "homepage": "https://github.com/tabnas/zon",
   "keywords": [
     "zon",
     "zig",
-    "jsonic",
+    "tabnas",
     "parser",
     "object",
     "json"
@@ -18,7 +18,7 @@
   "author": "Richard Rodger (http://richardrodger.com)",
   "repository": {
     "type": "git",
-    "url": "git://github.com/jsonicjs/zon.git"
+    "url": "git://github.com/tabnas/zon.git"
   },
   "scripts": {
     "test": "node --enable-source-maps --test \"dist-test/*.test.js\"",
@@ -39,11 +39,12 @@
     "dist",
     "LICENSE"
   ],
+  "peerDependencies": {
+    "@tabnas/jsonic": ">=2"
+  },
   "devDependencies": {
     "@types/node": "25.6.0",
-    "typescript": "6.0.3"
-  },
-  "peerDependencies": {
-    "jsonic": ">=2"
+    "typescript": "6.0.3",
+    "@tabnas/jsonic": "file:../../jsonic/ts"
   }
 }

@@ -3,7 +3,7 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert'
 
-import { Jsonic } from 'jsonic'
+import { Jsonic } from '@tabnas/jsonic'
 import { Zon } from '../dist/zon'
 
 // Jsonic builds maps with Object.create(null); normalise to plain objects so

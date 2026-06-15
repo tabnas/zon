@@ -8,13 +8,13 @@ and trailing commas.
 
 ```go
 import (
-  jsonic "github.com/jsonicjs/jsonic/go"
-  zon "github.com/jsonicjs/zon/go"
+  jsonic "github.com/tabnas/jsonic/go"
+  zon "github.com/tabnas/zon/go"
 )
 ```
 
 ```bash
-go get github.com/jsonicjs/zon/go@latest
+go get github.com/tabnas/zon/go@latest
 ```
 
 

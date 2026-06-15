@@ -1,6 +1,6 @@
-# @jsonic/zon
+# @tabnas/zon
 
-This plugin allows the [Jsonic](https://jsonic.senecajs.org) JSON parser to support Zig Object Notation (ZON) syntax.
+This plugin allows the [Tabnas](https://github.com/tabnas/parser) JSON parser to support Zig Object Notation (ZON) syntax.
 
 This repository contains:
 

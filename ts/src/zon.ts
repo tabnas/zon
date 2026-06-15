@@ -1,6 +1,6 @@
 /* Copyright (c) 2025 Richard Rodger, MIT License */
 
-// Import Jsonic types used by plugins.
+// Import Jsonic types used by plugins (from the @tabnas/jsonic relaxed-JSON shim).
 import {
   Jsonic,
   Rule,
@@ -9,7 +9,7 @@ import {
   Config,
   Options,
   Lex,
-} from 'jsonic'
+} from '@tabnas/jsonic'
 
 // Plugin options.
 type ZonOptions = {
@@ -85,12 +85,14 @@ const Zon: Plugin = (jsonic: Jsonic, options: ZonOptions) => {
   const enumTag = options.enumTag || null
 
   // If enumTag is set, wrap enum-literal values (produced by zonDot) into
-  // `{ [enumTag]: name }` objects. The `/prepend` form runs before the
-  // default `@val-bc` handler sets r.node from the token.
+  // `{ [enumTag]: name }` objects. The relaxed-JSON grammar takes ownership
+  // of the `@val-bc` (val close) phase via `@val-bc/replace`, which sets
+  // r.node from the matched token; once a phase is "replaced" the engine
+  // suppresses any `/prepend` on it. So run in the `@val-ac` (after-close)
+  // phase and rewrap the node the close handler produced from the enum token.
   const refs: Record<string, Function> = {
-    '@val-bc/prepend': (r: Rule, _ctx: Context) => {
+    '@val-ac': (r: Rule, _ctx: Context) => {
       if (!enumTag) return
-      if (undefined !== r.node) return
       if (undefined !== r.child.node) return
       if (0 === r.os) return
       const tkn: any = r.o0

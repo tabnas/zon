@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	jsonic "github.com/jsonicjs/jsonic/go"
+	jsonic "github.com/tabnas/jsonic/go"
 )
 
 // parse creates a jsonic instance with the Zon plugin and parses src.

@@ -1,6 +1,6 @@
-# @jsonic/zon
+# @tabnas/zon
 
-A [Jsonic](https://jsonic.senecajs.org) syntax plugin that parses
+A [Tabnas](https://github.com/tabnas/parser) syntax plugin that parses
 [Zig Object Notation (ZON)](https://ziglang.org/documentation/master/#ZON)
 text into objects, arrays, and scalar values. Available for
 TypeScript and Go.
@@ -31,8 +31,8 @@ literals, and looks like this:
 **TypeScript**
 
 ```typescript
-import { Jsonic } from 'jsonic'
-import { Zon } from '@jsonic/zon'
+import { Jsonic } from '@tabnas/jsonic'
+import { Zon } from '@tabnas/zon'
 
 const parse = Jsonic.make().use(Zon)
 
@@ -46,7 +46,7 @@ parse('.{ 1, 2, 3 }')
 **Go**
 
 ```go
-import zon "github.com/jsonicjs/zon/go"
+import zon "github.com/tabnas/zon/go"
 
 result, _ := zon.Parse(`.{ .name = "Alice", .age = 30 }`)
 // map[string]any{"name": "Alice", "age": 30}
