@@ -19,17 +19,15 @@ Requires `@tabnas/jsonic` >= 2 as a peer dependency.
 
 Register the plugin and parse a top-level struct literal:
 
-```typescript
+```js
 import { Jsonic } from '@tabnas/jsonic'
 import { Zon } from '@tabnas/zon'
 
 const j = Jsonic.make().use(Zon)
 
-j('.{ .name = "Alice", .age = 30 }')
-// { name: 'Alice', age: 30 }
+j('.{ .name = "Alice", .age = 30 }') // => { name: 'Alice', age: 30 }
 
-j('.{ 1, 2, 3 }')
-// [1, 2, 3]
+j('.{ 1, 2, 3 }') // => [1, 2, 3]
 ```
 
 ### Parse a realistic build.zig.zon
@@ -37,13 +35,13 @@ j('.{ 1, 2, 3 }')
 ZON files typically have nested structs mixed with tuple-style
 `paths` lists:
 
-```typescript
+```js
 import { Jsonic } from '@tabnas/jsonic'
 import { Zon } from '@tabnas/zon'
 
 const j = Jsonic.make().use(Zon)
 
-j(`.{
+const manifest = j(`.{
     .name = "example",
     .version = "0.0.1",
     .minimum_zig_version = "0.14.0",
@@ -58,27 +56,25 @@ j(`.{
         "src",
     },
 }`)
-// {
-//   name: 'example',
-//   version: '0.0.1',
-//   minimum_zig_version: '0.14.0',
-//   dependencies: { foo: { url: '...', hash: '1220deadbeef' } },
-//   paths: ['build.zig', 'src'],
-// }
+
+manifest // => { name: 'example', version: '0.0.1', minimum_zig_version: '0.14.0', dependencies: { foo: { url: 'https://example.com/foo.tar.gz', hash: '1220deadbeef' } }, paths: ['build.zig', 'src'] }
 ```
 
 ### Parse numbers in every ZON base
 
 ZON numbers accept hex, octal, binary, and `_` separators:
 
-```typescript
+```js
+import { Jsonic } from '@tabnas/jsonic'
+import { Zon } from '@tabnas/zon'
+
 const j = Jsonic.make().use(Zon)
 
-j('0x2a')      // 42
-j('0o52')      // 42
-j('0b101010')  // 42
-j('1_000_000') // 1000000
-j('3.14')      // 3.14
+j('0x2a')      // => 42
+j('0o52')      // => 42
+j('0b101010')  // => 42
+j('1_000_000') // => 1000000
+j('3.14')      // => 3.14
 ```
 
 
@@ -90,12 +86,15 @@ By default Zig char literals (`'A'`, `'\n'`, `'\u{1F600}'`) parse as
 one-character strings. Set `charAsNumber: true` to receive numeric
 code points instead:
 
-```typescript
+```js
+import { Jsonic } from '@tabnas/jsonic'
+import { Zon } from '@tabnas/zon'
+
 const j = Jsonic.make().use(Zon, { charAsNumber: true })
 
-j("'A'")         // 65
-j("'\\n'")       // 10
-j("'\\u{1F600}'") // 128512
+j("'A'")          // => 65
+j("'\\n'")        // => 10
+j("'\\u{1F600}'") // => 128512
 ```
 
 ### Tag enum literals to distinguish them from strings
@@ -104,11 +103,13 @@ Without options, an enum literal value like `.red` becomes the plain
 string `'red'`. If you need to tell it apart from an ordinary string
 in the parsed tree, set `enumTag`:
 
-```typescript
+```js
+import { Jsonic } from '@tabnas/jsonic'
+import { Zon } from '@tabnas/zon'
+
 const j = Jsonic.make().use(Zon, { enumTag: '$enum' })
 
-j('.{ .kind = .red, .label = "red" }')
-// { kind: { $enum: 'red' }, label: 'red' }
+j('.{ .kind = .red, .label = "red" }') // => { kind: { $enum: 'red' }, label: 'red' }
 ```
 
 ### Read multi-line Zig strings
@@ -116,16 +117,20 @@ j('.{ .kind = .red, .label = "red" }')
 Consecutive lines prefixed with `\\` become a single string joined by
 `\n`:
 
-```typescript
+```js
+import { Jsonic } from '@tabnas/jsonic'
+import { Zon } from '@tabnas/zon'
+
 const j = Jsonic.make().use(Zon)
 
-j(`.{
+const doc = j(`.{
   .description =
     \\\\first line
     \\\\second line
   ,
 }`)
-// { description: 'first line\nsecond line' }
+
+doc // => { description: 'first line\nsecond line' }
 ```
 
 ### Reject extra alternates contributed by this plugin

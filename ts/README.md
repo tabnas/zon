@@ -30,17 +30,15 @@ literals, and looks like this:
 
 **TypeScript**
 
-```typescript
+```js
 import { Jsonic } from '@tabnas/jsonic'
 import { Zon } from '@tabnas/zon'
 
 const parse = Jsonic.make().use(Zon)
 
-parse('.{ .name = "Alice", .age = 30 }')
-// { name: 'Alice', age: 30 }
+parse('.{ .name = "Alice", .age = 30 }') // => { name: 'Alice', age: 30 }
 
-parse('.{ 1, 2, 3 }')
-// [1, 2, 3]
+parse('.{ 1, 2, 3 }') // => [1, 2, 3]
 ```
 
 **Go**
