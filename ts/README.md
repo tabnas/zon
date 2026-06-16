@@ -59,6 +59,16 @@ framework (tutorials, how-to guides, explanation, reference):
 - [TypeScript documentation](doc/zon-ts.md)
 - [Go documentation](doc/zon-go.md)
 
+
+## Grammar diagram
+
+The installed grammar as a railroad/syntax diagram, generated from the live
+grammar with [`@tabnas/railroad`](https://github.com/tabnas/railroad):
+
+![zon grammar railroad diagram](doc/grammar.svg)
+
+A vertical ASCII version is in [`doc/grammar.txt`](doc/grammar.txt).
+
 ## License
 
 Copyright (c) 2025 Richard Rodger and other contributors,
