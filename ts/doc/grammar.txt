@@ -73,3 +73,8 @@ Tokens:
   OB  = .{ — start of a struct (map)
   OS  = .{ — start of a tuple (list)
   VAL = value: number, string, true/false/null, or .enum
+
+Ignored tokens:
+  CM = comment
+  LN = newline (line break)
+  SP = whitespace (spaces or tabs)
