@@ -68,8 +68,8 @@ elem:
    │
 
 Tokens:
-  CS  = ]
-  KEY = map key (text, number, string, or value)
-  OB  = {
-  OS  = [
-  VAL = a value (text, number, string, or value)
+  CS  = close square bracket ] (end of a list)
+  KEY = map key: bare text, number, string, or keyword
+  OB  = open brace { (start of a map)
+  OS  = open square bracket [ (start of a list)
+  VAL = value: bare text, number, string, or keyword
