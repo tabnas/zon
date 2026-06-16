@@ -7,10 +7,11 @@ tuples, enum literals, numeric bases, character literals, multi-line
 strings, and trailing commas.
 
 ```bash
-npm install @tabnas/zon
+npm install @tabnas/parser @tabnas/jsonic @tabnas/zon
 ```
 
-Requires `@tabnas/jsonic` >= 2 as a peer dependency.
+Requires `@tabnas/parser` >= 2 and `@tabnas/jsonic` >= 2 as peer
+dependencies.
 
 
 ## Tutorials
@@ -20,14 +21,15 @@ Requires `@tabnas/jsonic` >= 2 as a peer dependency.
 Register the plugin and parse a top-level struct literal:
 
 ```js
-import { Jsonic } from '@tabnas/jsonic'
+import { Tabnas } from '@tabnas/parser'
+import { jsonic } from '@tabnas/jsonic'
 import { Zon } from '@tabnas/zon'
 
-const j = Jsonic.make().use(Zon)
+const j = new Tabnas().use(jsonic).use(Zon)
 
-j('.{ .name = "Alice", .age = 30 }') // => { name: 'Alice', age: 30 }
+j.parse('.{ .name = "Alice", .age = 30 }') // => { name: 'Alice', age: 30 }
 
-j('.{ 1, 2, 3 }') // => [1, 2, 3]
+j.parse('.{ 1, 2, 3 }') // => [1, 2, 3]
 ```
 
 ### Parse a realistic build.zig.zon
@@ -36,12 +38,13 @@ ZON files typically have nested structs mixed with tuple-style
 `paths` lists:
 
 ```js
-import { Jsonic } from '@tabnas/jsonic'
+import { Tabnas } from '@tabnas/parser'
+import { jsonic } from '@tabnas/jsonic'
 import { Zon } from '@tabnas/zon'
 
-const j = Jsonic.make().use(Zon)
+const j = new Tabnas().use(jsonic).use(Zon)
 
-const manifest = j(`.{
+const manifest = j.parse(`.{
     .name = "example",
     .version = "0.0.1",
     .minimum_zig_version = "0.14.0",
@@ -65,16 +68,17 @@ manifest // => { name: 'example', version: '0.0.1', minimum_zig_version: '0.14.0
 ZON numbers accept hex, octal, binary, and `_` separators:
 
 ```js
-import { Jsonic } from '@tabnas/jsonic'
+import { Tabnas } from '@tabnas/parser'
+import { jsonic } from '@tabnas/jsonic'
 import { Zon } from '@tabnas/zon'
 
-const j = Jsonic.make().use(Zon)
+const j = new Tabnas().use(jsonic).use(Zon)
 
-j('0x2a')      // => 42
-j('0o52')      // => 42
-j('0b101010')  // => 42
-j('1_000_000') // => 1000000
-j('3.14')      // => 3.14
+j.parse('0x2a')      // => 42
+j.parse('0o52')      // => 42
+j.parse('0b101010')  // => 42
+j.parse('1_000_000') // => 1000000
+j.parse('3.14')      // => 3.14
 ```
 
 
@@ -87,14 +91,15 @@ one-character strings. Set `charAsNumber: true` to receive numeric
 code points instead:
 
 ```js
-import { Jsonic } from '@tabnas/jsonic'
+import { Tabnas } from '@tabnas/parser'
+import { jsonic } from '@tabnas/jsonic'
 import { Zon } from '@tabnas/zon'
 
-const j = Jsonic.make().use(Zon, { charAsNumber: true })
+const j = new Tabnas().use(jsonic).use(Zon, { charAsNumber: true })
 
-j("'A'")          // => 65
-j("'\\n'")        // => 10
-j("'\\u{1F600}'") // => 128512
+j.parse("'A'")          // => 65
+j.parse("'\\n'")        // => 10
+j.parse("'\\u{1F600}'") // => 128512
 ```
 
 ### Tag enum literals to distinguish them from strings
@@ -104,12 +109,13 @@ string `'red'`. If you need to tell it apart from an ordinary string
 in the parsed tree, set `enumTag`:
 
 ```js
-import { Jsonic } from '@tabnas/jsonic'
+import { Tabnas } from '@tabnas/parser'
+import { jsonic } from '@tabnas/jsonic'
 import { Zon } from '@tabnas/zon'
 
-const j = Jsonic.make().use(Zon, { enumTag: '$enum' })
+const j = new Tabnas().use(jsonic).use(Zon, { enumTag: '$enum' })
 
-j('.{ .kind = .red, .label = "red" }') // => { kind: { $enum: 'red' }, label: 'red' }
+j.parse('.{ .kind = .red, .label = "red" }') // => { kind: { $enum: 'red' }, label: 'red' }
 ```
 
 ### Read multi-line Zig strings
@@ -118,12 +124,13 @@ Consecutive lines prefixed with `\\` become a single string joined by
 `\n`:
 
 ```js
-import { Jsonic } from '@tabnas/jsonic'
+import { Tabnas } from '@tabnas/parser'
+import { jsonic } from '@tabnas/jsonic'
 import { Zon } from '@tabnas/zon'
 
-const j = Jsonic.make().use(Zon)
+const j = new Tabnas().use(jsonic).use(Zon)
 
-const doc = j(`.{
+const doc = j.parse(`.{
   .description =
     \\\\first line
     \\\\second line
@@ -140,7 +147,7 @@ Every grammar alternate added by the plugin carries the group tag
 useful, but supported), exclude that tag:
 
 ```typescript
-const j = Jsonic.make().use(Zon).options({
+const j = new Tabnas().use(jsonic).use(Zon).options({
   rule: { exclude: 'zon' },
 })
 ```
@@ -209,8 +216,9 @@ context — no grammar branching is needed.
 
 ### `Zon` (Plugin)
 
-The plugin function. Register with `Jsonic.make().use(Zon, options)`.
-`Zon.defaults` holds the merged default options.
+The plugin function. Register with
+`new Tabnas().use(jsonic).use(Zon, options)`. `Zon.defaults` holds the
+merged default options.
 
 ### `ZonOptions`
 

@@ -3,7 +3,8 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert'
 
-import { Jsonic } from '@tabnas/jsonic'
+import { Tabnas } from '@tabnas/parser'
+import { jsonic } from '@tabnas/jsonic'
 import { Zon } from '../dist/zon'
 
 // Jsonic builds maps with Object.create(null); normalise to plain objects so
@@ -17,8 +18,8 @@ function plain(v: any): any {
 }
 
 function parse(src: string, opts?: any) {
-  const j = Jsonic.make().use(Zon, opts || {})
-  return plain(j(src))
+  const j = new Tabnas().use(jsonic).use(Zon, opts || {})
+  return plain(j.parse(src))
 }
 
 describe('zon', () => {

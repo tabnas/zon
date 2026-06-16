@@ -31,14 +31,15 @@ literals, and looks like this:
 **TypeScript**
 
 ```js
-import { Jsonic } from '@tabnas/jsonic'
+import { Tabnas } from '@tabnas/parser'
+import { jsonic } from '@tabnas/jsonic'
 import { Zon } from '@tabnas/zon'
 
-const parse = Jsonic.make().use(Zon)
+const parse = new Tabnas().use(jsonic).use(Zon)
 
-parse('.{ .name = "Alice", .age = 30 }') // => { name: 'Alice', age: 30 }
+parse.parse('.{ .name = "Alice", .age = 30 }') // => { name: 'Alice', age: 30 }
 
-parse('.{ 1, 2, 3 }') // => [1, 2, 3]
+parse.parse('.{ 1, 2, 3 }') // => [1, 2, 3]
 ```
 
 **Go**
@@ -57,6 +58,16 @@ framework (tutorials, how-to guides, explanation, reference):
 
 - [TypeScript documentation](doc/zon-ts.md)
 - [Go documentation](doc/zon-go.md)
+
+
+## Grammar diagram
+
+The installed grammar as a railroad/syntax diagram, generated from the live
+grammar with [`@tabnas/railroad`](https://github.com/tabnas/railroad):
+
+![zon grammar railroad diagram](doc/grammar.svg)
+
+A vertical ASCII version is in [`doc/grammar.txt`](doc/grammar.txt).
 
 ## License
 
