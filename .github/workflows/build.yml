@@ -13,23 +13,39 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        node-version: [24.x, latest]
+        node-version: [24.x]
 
     runs-on: ${{ matrix.os }}
 
-    defaults:
-      run:
-        working-directory: ./ts
-
     steps:
     - uses: actions/checkout@v4
+      with:
+        path: zon
     - name: Use Node.js ${{ matrix.node-version }}
       uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
-    - run: npm i
-    - run: npm run build --if-present
-    - run: npm test
+    # The @tabnas siblings are not published to npm; clone them so the
+    # file: dependencies resolve, then build everything (this repo included)
+    # in dependency order so each package sees its built dependencies.
+    - name: Clone tabnas dependencies
+      shell: bash
+      run: |
+        set -e
+        for dep in parser debug json railroad jsonic; do
+          git clone --depth 1 "https://github.com/tabnas/$dep.git" "$dep"
+        done
+    - name: Build (dependencies, then this repo)
+      shell: bash
+      run: |
+        set -e
+        for pkg in parser debug json railroad jsonic zon; do
+          ( cd "$pkg/ts" && npm i && npm run build --if-present )
+        done
+    - name: Test
+      shell: bash
+      working-directory: zon/ts
+      run: npm test
 
   build-go:
 
