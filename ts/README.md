@@ -31,14 +31,15 @@ literals, and looks like this:
 **TypeScript**
 
 ```js
-import { Jsonic } from '@tabnas/jsonic'
+import { Tabnas } from '@tabnas/parser'
+import { jsonic } from '@tabnas/jsonic'
 import { Zon } from '@tabnas/zon'
 
-const parse = Jsonic.make().use(Zon)
+const parse = new Tabnas().use(jsonic).use(Zon)
 
-parse('.{ .name = "Alice", .age = 30 }') // => { name: 'Alice', age: 30 }
+parse.parse('.{ .name = "Alice", .age = 30 }') // => { name: 'Alice', age: 30 }
 
-parse('.{ 1, 2, 3 }') // => [1, 2, 3]
+parse.parse('.{ 1, 2, 3 }') // => [1, 2, 3]
 ```
 
 **Go**

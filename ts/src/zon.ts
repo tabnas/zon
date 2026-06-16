@@ -1,15 +1,17 @@
 /* Copyright (c) 2025 Richard Rodger, MIT License */
 
-// Import Jsonic types used by plugins (from the @tabnas/jsonic relaxed-JSON shim).
+// The engine is the tabnas parser; jsonic supplies the relaxed-JSON
+// grammar that the embedded grammar text is authored in.
 import {
-  Jsonic,
+  Tabnas,
   Rule,
   Plugin,
   Context,
   Config,
-  Options,
+  TabnasOptions,
   Lex,
-} from '@tabnas/jsonic'
+} from '@tabnas/parser'
+import { jsonic } from '@tabnas/jsonic'
 
 // Plugin options.
 type ZonOptions = {
@@ -80,7 +82,7 @@ const grammarText = `
 // --- END EMBEDDED zon-grammar.jsonic ---
 
 // Plugin implementation.
-const Zon: Plugin = (jsonic: Jsonic, options: ZonOptions) => {
+const Zon: Plugin = (tn: Tabnas, options: ZonOptions) => {
   const charAsNumber = !!options.charAsNumber
   const enumTag = options.enumTag || null
 
@@ -102,7 +104,7 @@ const Zon: Plugin = (jsonic: Jsonic, options: ZonOptions) => {
     },
   }
 
-  const grammarDef = Jsonic.make()(grammarText)
+  const grammarDef = new Tabnas().use(jsonic).parse(grammarText)
   grammarDef.ref = refs
   // All jsonic option overrides live on the grammar object so the plugin
   // applies them atomically alongside its rule alts.
@@ -178,7 +180,7 @@ const Zon: Plugin = (jsonic: Jsonic, options: ZonOptions) => {
 
   // Tag every alt in this grammar with the 'zon' group so callers can
   // selectively exclude zon alts via `rule.exclude: 'zon'`.
-  jsonic.grammar(grammarDef, { rule: { alt: { g: 'zon' } } })
+  tn.grammar(grammarDef, { rule: { alt: { g: 'zon' } } })
 }
 
 // Custom lex matcher for `.`-prefixed tokens.
@@ -186,7 +188,7 @@ const Zon: Plugin = (jsonic: Jsonic, options: ZonOptions) => {
 //   `.identifier`   -> #TX (val = identifier, use.zonEnum = true)
 // Runs ahead of the fixed-token matcher so it reliably owns the `.` prefix.
 function buildZonDotMatcher() {
-  return function makeZonDotMatcher(_cfg: Config, _opts: Options) {
+  return function makeZonDotMatcher(_cfg: Config, _opts: TabnasOptions) {
     return function zonDotMatcher(lex: Lex) {
       const { pnt } = lex
       const src: string = lex.src as unknown as string
@@ -268,7 +270,7 @@ function isIdCont(c: number): boolean {
 // Each `\\` line contributes its content verbatim (after the `\\`); lines
 // are joined with `\n`.
 function buildZonMultiStringMatcher() {
-  return function makeZonMultiStringMatcher(cfg: Config, _opts: Options) {
+  return function makeZonMultiStringMatcher(cfg: Config, _opts: TabnasOptions) {
     return function zonMultiStringMatcher(lex: Lex) {
       const { pnt } = lex; const src: string = lex.src as unknown as string
       if ('\\' !== src[pnt.sI] || '\\' !== src[pnt.sI + 1]) return undefined
@@ -316,7 +318,7 @@ function buildZonMultiStringMatcher() {
 // Zig character literal: `'x'`, `'\n'`, `'\x41'`, `'\u{1F600}'`.
 // Produces a numeric code point (if charAsNumber) or a one-char string.
 function buildZonCharMatcher(charAsNumber: boolean) {
-  return function makeZonCharMatcher(_cfg: Config, _opts: Options) {
+  return function makeZonCharMatcher(_cfg: Config, _opts: TabnasOptions) {
     return function zonCharMatcher(lex: Lex) {
       const { pnt } = lex; const src: string = lex.src as unknown as string
       const { sI, cI } = pnt
