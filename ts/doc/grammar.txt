@@ -66,3 +66,10 @@ elem:
 └──┬──┘│
    ├───┘
    │
+
+Tokens:
+  CS  = ]
+  KEY = map key (text, number, string, or value)
+  OB  = {
+  OS  = [
+  VAL = a value (text, number, string, or value)
