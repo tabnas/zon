@@ -86,6 +86,26 @@ const Zon: Plugin = (tn: Tabnas, options: ZonOptions) => {
   const charAsNumber = !!options.charAsNumber
   const enumTag = options.enumTag || null
 
+  // Human descriptions for the ZON tokens, surfaced in railroad diagram
+  // legends (read off the live config by @tabnas/railroad). ZON uses Zig
+  // anonymous-struct syntax: both maps and tuples open with `.{` and close
+  // with `}`; bare { [ ] are disabled and keys are `.identifier` field names.
+  tn.options({
+    config: {
+      modify: {
+        'zon-tokendesc': (cfg: any) => {
+          cfg.tokenDesc = Object.assign(cfg.tokenDesc || {}, {
+            '#OB': '.{ — start of a struct (map)',
+            '#OS': '.{ — start of a tuple (list)',
+            '#CS': '} — end of a tuple (list)',
+            'KEY': 'field name: .identifier (dot stripped)',
+            'VAL': 'value: number, string, true/false/null, or .enum',
+          })
+        },
+      },
+    },
+  })
+
   // If enumTag is set, wrap enum-literal values (produced by zonDot) into
   // `{ [enumTag]: name }` objects. The relaxed-JSON grammar takes ownership
   // of the `@val-bc` (val close) phase via `@val-bc/replace`, which sets
