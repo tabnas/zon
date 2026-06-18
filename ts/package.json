@@ -1,6 +1,6 @@
 {
   "name": "@tabnas/zon",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "This plugin allows the [Tabnas](https://github.com/tabnas/parser) JSON parser to support Zig Object Notation (ZON) syntax.",
   "main": "dist/zon.js",
   "type": "commonjs",
@@ -40,8 +40,8 @@
     "LICENSE"
   ],
   "peerDependencies": {
-    "@tabnas/jsonic": ">=2",
-    "@tabnas/parser": ">=2"
+    "@tabnas/jsonic": "^0.2.0",
+    "@tabnas/parser": "^0.2.0"
   },
   "devDependencies": {
     "@tabnas/debug": "file:../../debug/ts",
