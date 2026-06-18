@@ -62,6 +62,10 @@ framework (tutorials, how-to guides, explanation, reference):
 
 ## Grammar diagram
 
+The grammar is defined in the top-level [`zon-grammar.jsonic`](../zon-grammar.jsonic)
+and embedded into this implementation (and the Go port) by
+[`embed-grammar.js`](embed-grammar.js) during the build.
+
 The installed grammar as a railroad/syntax diagram, generated from the live
 grammar with [`@tabnas/railroad`](https://github.com/tabnas/railroad):
 
