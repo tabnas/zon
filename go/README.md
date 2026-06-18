@@ -12,25 +12,25 @@ go get github.com/tabnas/zon/go@latest
 ```
 
 ```go
-import zon "github.com/tabnas/zon/go"
+import tabnaszon "github.com/tabnas/zon/go"
 ```
 
 ## One example
 
-`zon.Parse` is the one-call entry point — pass source, get a value and
+`tabnaszon.Parse` is the one-call entry point — pass source, get a value and
 an `error`:
 
 ```go
-result, err := zon.Parse(`.{ .name = "Alice", .age = 30 }`)
+result, err := tabnaszon.Parse(`.{ .name = "Alice", .age = 30 }`)
 // result: map[string]any{"name": "Alice", "age": float64(30)}
 
-result, err = zon.Parse(`.{ 1, 2, 3 }`)
+result, err = tabnaszon.Parse(`.{ 1, 2, 3 }`)
 // result: []any{float64(1), float64(2), float64(3)}
 ```
 
 Numbers come back as `float64`. The no-options `Parse` path reuses a
 cached instance internally and is safe for concurrent use; for hot
-loops with options, build one instance with `zon.MakeJsonic` and reuse
+loops with options, build one instance with `tabnaszon.MakeJsonic` and reuse
 it.
 
 ## Documentation
