@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	jsonic "github.com/tabnas/jsonic/go"
@@ -259,9 +260,27 @@ func MakeJsonic(opts ...ZonOptions) *jsonic.Jsonic {
 	return j
 }
 
+// defaultParser is a lazily-created instance reused by the default (no-option)
+// Parse path, so repeated calls don't rebuild the engine and grammar each time
+// (building the ZON grammar dominates a parse — see perf_test.go). Parsing
+// builds a fresh context per call and only reads instance state, so the shared
+// instance is safe for concurrent use. Mirrors @tabnas/json's Parse.
+var (
+	defaultOnce   sync.Once
+	defaultParser *jsonic.Jsonic
+)
+
 // Parse parses a ZON string and returns the resulting value. Convenience
 // wrapper around MakeJsonic(opts...).Parse(src).
+//
+// The default (no-options) path reuses a single cached instance, so repeated
+// calls don't rebuild the engine + grammar. Option-taking calls still build a
+// dedicated instance, since their configuration differs per call.
 func Parse(src string, opts ...ZonOptions) (any, error) {
+	if len(opts) == 0 {
+		defaultOnce.Do(func() { defaultParser = MakeJsonic() })
+		return defaultParser.Parse(src)
+	}
 	return MakeJsonic(opts...).Parse(src)
 }
 
