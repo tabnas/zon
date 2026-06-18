@@ -1,73 +1,61 @@
 # @tabnas/zon
 
-A [Tabnas](https://github.com/tabnas/parser) syntax plugin that parses
+A [Tabnas](https://github.com/tabnas/parser) grammar plugin that parses
 [Zig Object Notation (ZON)](https://ziglang.org/documentation/master/#ZON)
-text into objects, arrays, and scalar values. Available for
-TypeScript and Go.
+text into objects, arrays, and scalar values. ZON is the anonymous-struct
+data format used for Zig `build.zig.zon` manifests.
 
-ZON is the data format used for Zig `build.zig.zon` manifests and
-similar configuration files. It is based on Zig anonymous struct
-literals, and looks like this:
+## Install
 
-```zon
-.{
-    .name = "example",
-    .version = "0.0.1",
-    .dependencies = .{
-        .foo = .{
-            .url = "https://example.com/foo.tar.gz",
-            .hash = "1220deadbeef",
-        },
-    },
-    .paths = .{
-        "build.zig",
-        "src",
-    },
-}
+```bash
+npm install @tabnas/parser @tabnas/jsonic @tabnas/zon
 ```
 
-## Quick example
+Requires `@tabnas/parser` >= 2 and `@tabnas/jsonic` >= 2 as peer
+dependencies.
 
-**TypeScript**
+## One example
+
+The plugin layers onto a Tabnas engine that already has the jsonic
+grammar:
 
 ```js
 import { Tabnas } from '@tabnas/parser'
 import { jsonic } from '@tabnas/jsonic'
 import { Zon } from '@tabnas/zon'
 
-const parse = new Tabnas().use(jsonic).use(Zon)
+const j = new Tabnas().use(jsonic).use(Zon)
 
-parse.parse('.{ .name = "Alice", .age = 30 }') // => { name: 'Alice', age: 30 }
-
-parse.parse('.{ 1, 2, 3 }') // => [1, 2, 3]
+j.parse('.{ .name = "Alice", .age = 30 }') // => { name: 'Alice', age: 30 }
+j.parse('.{ 1, 2, 3 }')                     // => [1, 2, 3]
 ```
 
-**Go**
-
-```go
-import zon "github.com/tabnas/zon/go"
-
-result, _ := zon.Parse(`.{ .name = "Alice", .age = 30 }`)
-// map[string]any{"name": "Alice", "age": 30}
-```
+Build the instance once and reuse it — constructing the grammar is the
+expensive part.
 
 ## Documentation
 
-Full documentation following the [Diataxis](https://diataxis.fr)
-framework (tutorials, how-to guides, explanation, reference):
+Full documentation follows the [Diátaxis](https://diataxis.fr)
+framework:
 
-- [TypeScript documentation](doc/zon-ts.md)
-- [Go documentation](doc/zon-go.md)
+- [Tutorial](doc/tutorial.md) — a guided first parse, start to finish.
+- [How-to guide](doc/guide.md) — short recipes for individual tasks.
+- [Reference](doc/reference.md) — the public API, every option, and the
+  complete ZON syntax accepted.
+- [Concepts](doc/concepts.md) — how the plugin reshapes the engine, and
+  why.
 
+For the Go port, see [`../go/README.md`](../go/README.md).
 
 ## Grammar diagram
 
-The grammar is defined in the top-level [`zon-grammar.jsonic`](../zon-grammar.jsonic)
-and embedded into this implementation (and the Go port) by
-[`embed-grammar.js`](embed-grammar.js) during the build.
+The grammar is defined in the top-level
+[`zon-grammar.jsonic`](../zon-grammar.jsonic) and embedded into this
+implementation (and the Go port) by [`embed-grammar.js`](embed-grammar.js)
+during the build.
 
-The installed grammar as a railroad/syntax diagram, generated from the live
-grammar with [`@tabnas/railroad`](https://github.com/tabnas/railroad):
+The installed grammar as a railroad/syntax diagram, generated with
+[`@tabnas/railroad`](https://github.com/tabnas/railroad):
 
 ![zon grammar railroad diagram](doc/grammar.svg)
 
