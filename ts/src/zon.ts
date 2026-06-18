@@ -59,8 +59,12 @@ const grammarText = `
   ]
 
   rule: list: open: [
-    { s: '#OS #CB' b: 1 g: 'list,empty' }
-    { s: '#OS' p: elem g: 'list,open' }
+    # @array$ allocates the list node (an empty array). Under the new core
+    # the list node is no longer auto-seeded: @tabnas/json's @array$ only
+    # runs on its own #OS open alts, which ZON replaces here. Without this
+    # the elem rule's @elem-bc/replace would push onto an undefined node.
+    { s: '#OS #CB' b: 1 a: '@array$' g: 'list,empty' }
+    { s: '#OS' p: elem a: '@array$' g: 'list,open' }
   ]
   rule: list: close: [
     { s: '#CB' g: 'list,close' }
