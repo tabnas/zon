@@ -6,21 +6,21 @@ basics). For the full API, every option, and the complete syntax,
 follow the links into the [reference](reference.md).
 
 ```go
-import zon "github.com/tabnas/zon/go"
+import tabnaszon "github.com/tabnas/zon/go"
 ```
 
 ## Parse a single string
 
-`zon.Parse` is the simplest entry point — pass source, get a value and
+`tabnaszon.Parse` is the simplest entry point — pass source, get a value and
 an error:
 
 ```go
-result, err := zon.Parse(`.{ .a = 1, .b = 2 }`)
+result, err := tabnaszon.Parse(`.{ .a = 1, .b = 2 }`)
 // result: map[string]any{"a": float64(1), "b": float64(2)}
 ```
 
 The no-options path reuses a single cached parser instance internally,
-so repeated `zon.Parse(src)` calls do not rebuild the engine each time.
+so repeated `tabnaszon.Parse(src)` calls do not rebuild the engine each time.
 It is safe for concurrent use.
 
 ## Parse a realistic build.zig.zon
@@ -45,7 +45,7 @@ src := `.{
     },
 }`
 
-result, err := zon.Parse(src)
+result, err := tabnaszon.Parse(src)
 // result: map[string]any{
 //   "name":                "example",
 //   "version":             "0.0.1",
@@ -65,11 +65,11 @@ Numbers accept decimal, hex, octal, binary, floats, and `_` digit
 separators. Every number is a `float64`:
 
 ```go
-zon.Parse("0x2a")      // float64(42)
-zon.Parse("0o52")      // float64(42)
-zon.Parse("0b101010")  // float64(42)
-zon.Parse("1_000_000") // float64(1000000)
-zon.Parse("3.14")      // float64(3.14)
+tabnaszon.Parse("0x2a")      // float64(42)
+tabnaszon.Parse("0o52")      // float64(42)
+tabnaszon.Parse("0b101010")  // float64(42)
+tabnaszon.Parse("1_000_000") // float64(1000000)
+tabnaszon.Parse("3.14")      // float64(3.14)
 ```
 
 ## Parse character literals as code points
@@ -80,7 +80,7 @@ points (as `float64`) instead:
 
 ```go
 charAsNum := true
-result, err := zon.Parse(`'A'`, zon.ZonOptions{CharAsNumber: &charAsNum})
+result, err := tabnaszon.Parse(`'A'`, tabnaszon.ZonOptions{CharAsNumber: &charAsNum})
 // result: float64(65)
 ```
 
@@ -92,9 +92,9 @@ Set `EnumTag` to wrap each enum value in a one-key map so you can tell
 which was which:
 
 ```go
-result, err := zon.Parse(
+result, err := tabnaszon.Parse(
     `.{ .kind = .red, .label = "red" }`,
-    zon.ZonOptions{EnumTag: "$enum"},
+    tabnaszon.ZonOptions{EnumTag: "$enum"},
 )
 // result: map[string]any{
 //   "kind":  map[string]any{"$enum": "red"},
@@ -115,18 +115,18 @@ src := ".{\n" +
     "    ,\n" +
     "}"
 
-result, err := zon.Parse(src)
+result, err := tabnaszon.Parse(src)
 // result: map[string]any{"description": "first line\nsecond line"}
 ```
 
 ## Reuse a parser for many inputs (with options)
 
-`zon.Parse(src, opts)` builds a dedicated instance per call when you
+`tabnaszon.Parse(src, opts)` builds a dedicated instance per call when you
 pass options, since the configuration differs per call. For a hot loop
 with fixed options, build one instance with `MakeJsonic` and reuse it:
 
 ```go
-j := zon.MakeJsonic(zon.ZonOptions{EnumTag: "$enum"})
+j := tabnaszon.MakeJsonic(tabnaszon.ZonOptions{EnumTag: "$enum"})
 for _, src := range inputs {
     result, err := j.Parse(src)
     _ = result
@@ -134,7 +134,7 @@ for _, src := range inputs {
 }
 ```
 
-(With *no* options, plain `zon.Parse(src)` already reuses a cached
+(With *no* options, plain `tabnaszon.Parse(src)` already reuses a cached
 instance, so you do not need `MakeJsonic` for that case.)
 
 ## Handle a parse error
@@ -143,7 +143,7 @@ ZON deliberately rejects non-ZON input — a bare `{` opener, for
 instance. The parse never panics; it returns an `error`:
 
 ```go
-result, err := zon.Parse(`{ a = 1 }`) // not ZON: bare { is rejected
+result, err := tabnaszon.Parse(`{ a = 1 }`) // not ZON: bare { is rejected
 if err != nil {
     // handle the syntax error; result is nil
 }
@@ -158,13 +158,13 @@ jsonic instance:
 
 ```go
 import (
-    jsonic "github.com/tabnas/jsonic/go"
-    zon "github.com/tabnas/zon/go"
+    tabnasjsonic "github.com/tabnas/jsonic/go"
+    tabnaszon "github.com/tabnas/zon/go"
 )
 
-j := jsonic.Make()
-j.UseDefaults(zon.Zon, zon.Defaults)
-j.SetOptions(jsonic.Options{Rule: &jsonic.RuleOptions{Exclude: "zon"}})
+j := tabnasjsonic.Make()
+j.UseDefaults(tabnaszon.Zon, tabnaszon.Defaults)
+j.SetOptions(tabnasjsonic.Options{Rule: &tabnasjsonic.RuleOptions{Exclude: "zon"}})
 ```
 
 This is rarely useful — you would normally just not load the plugin —

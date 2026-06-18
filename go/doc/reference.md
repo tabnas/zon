@@ -13,13 +13,13 @@ go get github.com/tabnas/zon/go@latest
 ```
 
 ```go
-import zon "github.com/tabnas/zon/go"
+import tabnaszon "github.com/tabnas/zon/go"
 ```
 
 | | |
 |---|---|
 | Module | `github.com/tabnas/zon/go` |
-| Package | `zon` |
+| Package | `tabnaszon` |
 | Engine | `github.com/tabnas/jsonic/go` (pulled in transitively) |
 | `Version` | exported `const` string of the module version |
 
@@ -37,18 +37,18 @@ reads instance state). With options, a dedicated instance is built per
 call, since the configuration differs per call.
 
 ```go
-result, err := zon.Parse(`.{ .a = 1 }`)
+result, err := tabnaszon.Parse(`.{ .a = 1 }`)
 // result: map[string]any{"a": float64(1)}
 ```
 
-### `func MakeJsonic(opts ...ZonOptions) *jsonic.Jsonic`
+### `func MakeJsonic(opts ...ZonOptions) *tabnasjsonic.Jsonic`
 
-Returns a reusable `*jsonic.Jsonic` instance configured for ZON
+Returns a reusable `*tabnasjsonic.Jsonic` instance configured for ZON
 parsing. Use this when parsing many strings with the same options:
 build once, call `.Parse()` per input.
 
 ```go
-j := zon.MakeJsonic()
+j := tabnaszon.MakeJsonic()
 result, err := j.Parse(`.{ 1, 2, 3 }`)
 // result: []any{float64(1), float64(2), float64(3)}
 ```
@@ -56,17 +56,17 @@ result, err := j.Parse(`.{ 1, 2, 3 }`)
 A plugin-registration failure (a programming error with static inputs)
 panics rather than misbehaving silently.
 
-### `func Zon(j *jsonic.Jsonic, options map[string]any) error`
+### `func Zon(j *tabnasjsonic.Jsonic, options map[string]any) error`
 
 The raw plugin function. Usually invoked indirectly through
-`j.UseDefaults(zon.Zon, zon.Defaults, opts...)` or via `Parse` /
+`j.UseDefaults(tabnaszon.Zon, tabnaszon.Defaults, opts...)` or via `Parse` /
 `MakeJsonic`. It is idempotent: a re-invocation guard
 (`zon-init` decoration) makes re-application during `SetOptions` a
 no-op.
 
 ```go
-j := jsonic.Make()
-j.UseDefaults(zon.Zon, zon.Defaults)
+j := tabnasjsonic.Make()
+j.UseDefaults(tabnaszon.Zon, tabnaszon.Defaults)
 result, err := j.Parse(`.{ .a = 1 }`)
 ```
 
@@ -114,7 +114,7 @@ type ZonOptions struct {
 
 ```go
 charAsNum := true
-zon.Parse(`'A'`, zon.ZonOptions{CharAsNumber: &charAsNum}) // float64(65)
+tabnaszon.Parse(`'A'`, tabnaszon.ZonOptions{CharAsNumber: &charAsNum}) // float64(65)
 ```
 
 ### `EnumTag`
@@ -134,7 +134,7 @@ zon.Parse(`'A'`, zon.ZonOptions{CharAsNumber: &charAsNum}) // float64(65)
 key (before `=`) is always the plain field name.
 
 ```go
-zon.Parse(`.{ .kind = .red }`, zon.ZonOptions{EnumTag: "$enum"})
+tabnaszon.Parse(`.{ .kind = .red }`, tabnaszon.ZonOptions{EnumTag: "$enum"})
 // map[string]any{"kind": map[string]any{"$enum": "red"}}
 ```
 
@@ -276,9 +276,9 @@ Callers can switch the ZON alts off (restoring plain jsonic) via
 `Options{Rule: &RuleOptions{Exclude: "zon"}}`:
 
 ```go
-j := jsonic.Make()
-j.UseDefaults(zon.Zon, zon.Defaults)
-j.SetOptions(jsonic.Options{Rule: &jsonic.RuleOptions{Exclude: "zon"}})
+j := tabnasjsonic.Make()
+j.UseDefaults(tabnaszon.Zon, tabnaszon.Defaults)
+j.SetOptions(tabnasjsonic.Options{Rule: &tabnasjsonic.RuleOptions{Exclude: "zon"}})
 ```
 
 ## Errors

@@ -11,7 +11,7 @@
 //	    .deps = .{ .foo = .{ .url = "https://..." } },
 //	    .paths = .{ "build.zig", "src" },
 //	}
-package zon
+package tabnaszon
 
 import (
 	"fmt"

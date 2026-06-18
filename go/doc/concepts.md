@@ -24,9 +24,9 @@ options change plus a handful of alternates — not a new parser. The
 plugin embeds the canonical grammar text (from the repo-root
 `zon-grammar.jsonic`, kept in sync with the TypeScript source by the
 build), parses it with a throwaway jsonic instance into a
-`*jsonic.GrammarSpec`, attaches its `*jsonic.Options` overrides to that
+`*tabnasjsonic.GrammarSpec`, attaches its `*tabnasjsonic.Options` overrides to that
 spec, and applies the whole thing atomically via `j.Grammar(gs,
-&jsonic.GrammarSetting{Rule: ...G: "zon"})`.
+&tabnasjsonic.GrammarSetting{Rule: ...G: "zon"})`.
 
 ## ZON is not a superset of JSON
 
@@ -131,8 +131,8 @@ host language's API shape, value types, and a couple of error codes.
 
 | Area | TypeScript | Go |
 |---|---|---|
-| Convenience entry | none — install the plugin yourself | `zon.Parse(src, opts...)` and `zon.MakeJsonic(opts...)` |
-| Build a parser | `new Tabnas().use(jsonic).use(Zon, opts)` | `zon.MakeJsonic(opts)` or `j.UseDefaults(zon.Zon, zon.Defaults, m)` |
+| Convenience entry | none — install the plugin yourself | `tabnaszon.Parse(src, opts...)` and `tabnaszon.MakeJsonic(opts...)` |
+| Build a parser | `new Tabnas().use(jsonic).use(Zon, opts)` | `tabnaszon.MakeJsonic(opts)` or `j.UseDefaults(tabnaszon.Zon, tabnaszon.Defaults, m)` |
 | Options | one object `{ charAsNumber, enumTag }` | `ZonOptions{ CharAsNumber *bool, EnumTag string }`, or a `map[string]any` |
 | "Omit vs set" | option present or absent | `*bool` nil vs set; `EnumTag == ""` means unset |
 | Parse failure | **throws** | returns `error`; never panics on parse errors |

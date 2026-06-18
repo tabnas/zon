@@ -43,12 +43,12 @@ j.parse('.{ .name = "Alice", .age = 30 }') // => { name: 'Alice', age: 30 }
 j.parse('.{ 1, 2, 3 }')                     // => [1, 2, 3]
 ```
 
-**Go** — `zon.Parse` is the one-call entry point:
+**Go** — `tabnaszon.Parse` is the one-call entry point:
 
 ```go
-import zon "github.com/tabnas/zon/go"
+import tabnaszon "github.com/tabnas/zon/go"
 
-result, _ := zon.Parse(`.{ .name = "Alice", .age = 30 }`)
+result, _ := tabnaszon.Parse(`.{ .name = "Alice", .age = 30 }`)
 // map[string]any{"name": "Alice", "age": float64(30)}
 ```
 
