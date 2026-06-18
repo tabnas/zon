@@ -23,7 +23,7 @@ import (
 	jsonic "github.com/tabnas/jsonic/go"
 )
 
-const Version = "0.1.1"
+const Version = "0.2.0"
 
 // --- BEGIN EMBEDDED zon-grammar.jsonic ---
 const grammarText = `
