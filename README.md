@@ -1,28 +1,83 @@
 # @tabnas/zon
 
-This plugin allows the [Tabnas](https://github.com/tabnas/parser) JSON parser to support Zig Object Notation (ZON) syntax.
+A grammar plugin that teaches the [Tabnas](https://github.com/tabnas/parser)
+parser to read [Zig Object Notation (ZON)](https://ziglang.org/documentation/master/#ZON) —
+the anonymous-struct data format used for `build.zig.zon` manifests.
+Available for both TypeScript and Go, built on the same grammar.
 
-This repository contains:
+ZON looks like this:
 
-| Path | Description |
-|---|---|
-| [`ts/`](ts/) | TypeScript / JavaScript implementation. |
-| [`go/`](go/) | Go port. |
+```zon
+.{
+    .name = "example",
+    .version = "0.0.1",
+    .dependencies = .{
+        .foo = .{ .url = "https://example.com/foo.tar.gz", .hash = "1220deadbeef" },
+    },
+    .paths = .{ "build.zig", "src" },
+}
+```
 
-See [`ts/README.md`](ts/README.md) for usage.
+## Install
 
-## Grammar
+```bash
+# TypeScript / JavaScript
+npm install @tabnas/parser @tabnas/jsonic @tabnas/zon
 
-The grammar is defined once in the top-level [`zon-grammar.jsonic`](zon-grammar.jsonic)
-and embedded into both implementations — the TypeScript ([`ts/src/zon.ts`](ts/src/zon.ts))
-and Go ([`go/zon.go`](go/zon.go)) sources — by [`ts/embed-grammar.js`](ts/embed-grammar.js),
-which runs as part of the TypeScript build. Edit the grammar there, not in the
-generated source files.
+# Go
+go get github.com/tabnas/zon/go@latest
+```
+
+## One tiny example
+
+**TypeScript** — the plugin layers onto a Tabnas engine:
+
+```js
+import { Tabnas } from '@tabnas/parser'
+import { jsonic } from '@tabnas/jsonic'
+import { Zon } from '@tabnas/zon'
+
+const j = new Tabnas().use(jsonic).use(Zon)
+
+j.parse('.{ .name = "Alice", .age = 30 }') // => { name: 'Alice', age: 30 }
+j.parse('.{ 1, 2, 3 }')                     // => [1, 2, 3]
+```
+
+**Go** — `zon.Parse` is the one-call entry point:
+
+```go
+import zon "github.com/tabnas/zon/go"
+
+result, _ := zon.Parse(`.{ .name = "Alice", .age = 30 }`)
+// map[string]any{"name": "Alice", "age": float64(30)}
+```
+
+## Documentation
+
+Full documentation follows the [Diátaxis](https://diataxis.fr)
+framework — one file per quadrant, per language:
+
+| | TypeScript | Go |
+|---|---|---|
+| **Tutorial** (learning) | [ts/doc/tutorial.md](ts/doc/tutorial.md) | [go/doc/tutorial.md](go/doc/tutorial.md) |
+| **How-to guide** (tasks) | [ts/doc/guide.md](ts/doc/guide.md) | [go/doc/guide.md](go/doc/guide.md) |
+| **Reference** (API + options + syntax) | [ts/doc/reference.md](ts/doc/reference.md) | [go/doc/reference.md](go/doc/reference.md) |
+| **Concepts** (explanation) | [ts/doc/concepts.md](ts/doc/concepts.md) | [go/doc/concepts.md](go/doc/concepts.md) |
+
+Per-language hubs: [`ts/README.md`](ts/README.md),
+[`go/README.md`](go/README.md).
 
 ## Grammar diagram
 
-The grammar as a railroad/syntax diagram, generated from the live grammar
-with [`@tabnas/railroad`](https://github.com/tabnas/railroad):
+The grammar is defined once in the top-level
+[`zon-grammar.jsonic`](zon-grammar.jsonic) and embedded into both
+implementations — TypeScript ([`ts/src/zon.ts`](ts/src/zon.ts)) and Go
+([`go/zon.go`](go/zon.go)) — by [`ts/embed-grammar.js`](ts/embed-grammar.js)
+during the TypeScript build. Edit the grammar there, not in the
+generated sources.
+
+As a railroad/syntax diagram, generated from the live grammar with
+[`@tabnas/railroad`](https://github.com/tabnas/railroad):
 
 ![zon grammar railroad diagram](ts/doc/grammar.svg)
 
