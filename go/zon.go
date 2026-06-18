@@ -60,8 +60,12 @@ const grammarText = `
   ]
 
   rule: list: open: [
-    { s: '#OS #CB' b: 1 g: 'list,empty' }
-    { s: '#OS' p: elem g: 'list,open' }
+    # @array$ allocates the list node (an empty array). Under the new core
+    # the list node is no longer auto-seeded: @tabnas/json's @array$ only
+    # runs on its own #OS open alts, which ZON replaces here. Without this
+    # the elem rule's @elem-bc/replace would push onto an undefined node.
+    { s: '#OS #CB' b: 1 a: '@array$' g: 'list,empty' }
+    { s: '#OS' p: elem a: '@array$' g: 'list,open' }
   ]
   rule: list: close: [
     { s: '#CB' g: 'list,close' }
@@ -94,14 +98,18 @@ func Zon(j *jsonic.Jsonic, options map[string]any) error {
 	charAsNumber := toBool(options["charAsNumber"])
 	enumTag := toString(options["enumTag"])
 
-	// If enumTag is set, wrap enum-literal values into `{ [enumTag]: name }`.
-	// Runs before the default `@val-bc` (via /prepend) so it takes precedence.
+	// If enumTag is set, wrap enum-literal values (produced by zonDot) into
+	// `{ [enumTag]: name }` objects. jsonic's relaxed grammar takes ownership
+	// of the `@val-bc` (val close) phase via `@val-bc/replace`, which resolves
+	// r.Node from the matched token; once a phase is "replaced" the engine
+	// SUPPRESSES any `/prepend` on it. So run in the `@val-ac` (after-close)
+	// phase — mirroring the TS side — and rewrap the node the close handler
+	// produced from the enum token. The val rule is declared in the grammar
+	// text, so wireStateActions binds this plain `@val-ac` name as an append
+	// to the val rule's AC phase (after jsonic's openval-restore @val-ac).
 	refs := map[jsonic.FuncRef]any{}
 	if enumTag != "" {
-		refs["@val-bc/prepend"] = jsonic.StateAction(func(r *jsonic.Rule, _ *jsonic.Context) {
-			if !jsonic.IsUndefined(r.Node) {
-				return
-			}
+		refs["@val-ac"] = jsonic.StateAction(func(r *jsonic.Rule, _ *jsonic.Context) {
 			if r.Child != nil && !jsonic.IsUndefined(r.Child.Node) {
 				return
 			}
