@@ -1,5 +1,13 @@
 # Agents Guide — zon
 
+> **Starting a new plugin from this template?** This repo is the scaffold
+> other Tabnas grammar plugins are copied from. Read
+> **[`TEMPLATE.md`](TEMPLATE.md)** first — it covers the tabnas **engine
+> model** (lexer + rules/alts), the **ecosystem map** (jsonic vs abnf vs
+> the bare engine), **which files to copy vs rewrite**, and how to get a
+> **green build in an isolated checkout**. This file (`AGENTS.md`)
+> documents `@tabnas/zon`'s own internals.
+
 ## What this project is
 
 `@tabnas/zon` is a **grammar plugin** that parses
@@ -43,8 +51,8 @@ map); anything else → `#OS` (tuple / list). A bare `.identifier` emits
 
 | Path | What it is |
 |---|---|
-| [`ts/`](ts/) | **Canonical** TypeScript implementation — the `@tabnas/zon` package (currently `0.1.2`). Plugin in `src/zon.ts`. Peer-depends on `@tabnas/jsonic` and `@tabnas/parser`. No CLI. |
-| [`go/`](go/) | Go port — `github.com/tabnas/zon/go` (`const Version` in `go/zon.go`, currently `0.1.1`). Plugin `Zon` plus `MakeJsonic` / `Parse` helpers. Depends on `github.com/tabnas/jsonic/go` via a `replace` directive (sibling checkout). |
+| [`ts/`](ts/) | **Canonical** TypeScript implementation — the `@tabnas/zon` package (currently `0.2.0`). Plugin in `src/zon.ts`. Peer-depends on `@tabnas/jsonic` and `@tabnas/parser`. No CLI. |
+| [`go/`](go/) | Go port — `github.com/tabnas/zon/go` (`const Version` in `go/zon.go`). Plugin `Zon` plus `MakeJsonic` / `Parse` helpers. Requires the published `github.com/tabnas/jsonic/go` (no `replace` directive). |
 | [`ts/zon-grammar.jsonic`](ts/zon-grammar.jsonic) | **Single source of truth** for the grammar-rule alts (the `val`/`list`/`elem`/`pair` overrides), authored in jsonic syntax. |
 | [`ts/embed-grammar.js`](ts/embed-grammar.js) | Embeds `zon-grammar.jsonic` into **both** `src/zon.ts` and `go/zon.go` (between `BEGIN/END EMBEDDED` markers) as a `grammarText` string literal. Runs as the first half of `npm run build`. |
 | [`ts/test/`](ts/test/) | TS tests (`.ts`, compiled to `dist-test/`): `zon.test.ts` (parse cases), `debug-model.test.ts` (the `@tabnas/debug` composition / model introspection), `doc-examples.test.ts` (runs `// =>` assertions in README/doc fences). |
@@ -54,28 +62,31 @@ map); anything else → `#OS` (tuple / list). A bare `.identifier` emits
 
 ## The tabnas engine dependency
 
-Both runtimes depend on the unpublished `@tabnas` siblings via a
-**sibling checkout** (the standard tabnas dev model until the packages
-publish tagged releases). Note this repo sits **above jsonic** in the
-stack, not directly above the bare engine:
+This repo sits **above jsonic** in the stack, not directly above the bare
+engine. The packages are **published on npm** (`@tabnas/* @ 0.2.0`); the
+`file:` paths in `package.json` are the monorepo dev layout, not a
+requirement.
 
 - TypeScript: `@tabnas/jsonic` and `@tabnas/parser` are both
-  `peerDependencies` (`">=2"`) in `ts/package.json`, each mirrored as a
-  `file:../../<dep>/ts` devDependency for local builds (npm >=7 / Node
-  >=24 auto-installs peers; `engines.node` is `">=24"`). `@tabnas/debug`
-  and `@tabnas/railroad` are **dev-only** `file:` devDependencies —
-  debug for the `debug-model.test.ts` composition test, railroad to
-  regenerate `ts/doc/grammar.{svg,txt}`.
-- Go: `go/go.mod` has the single require/replace pair
-  `github.com/tabnas/jsonic/go => ../../jsonic/go`. (jsonic in turn
-  sibling-replaces parser/json/debug, so those must be cloned too.)
+  `peerDependencies` (`^0.2.0`) in `ts/package.json`, each mirrored as a
+  `file:../../<dep>/ts` devDependency for monorepo builds. `@tabnas/debug`
+  and `@tabnas/railroad` are **dev-only** `file:` devDependencies — debug
+  for the `debug-model.test.ts` composition test, railroad to regenerate
+  `ts/doc/grammar.{svg,txt}`. `engines.node` is `">=24"` (builds/tests
+  also run on Node 22 with harmless `EBADENGINE` warnings).
+- Go: `go/go.mod` `require`s the published modules directly
+  (`github.com/tabnas/{jsonic,json,parser}/go v0.2.0`) with **no
+  `replace`** — `go build`/`go test` resolve them from the module proxy.
 
-Clone `https://github.com/tabnas/jsonic` and `https://github.com/tabnas/parser`
-(plus `json`, `debug`, `railroad` for jsonic's deps, the composition test,
-and the diagram) as siblings of this repo, build the TS halves
-(`cd parser/ts && npm install && npm run build`, likewise `jsonic/ts`),
-then work here. CI (`.github/workflows/build.yml`) checks the siblings
-out and builds them first.
+**Two dev models:**
+- *Monorepo:* clone `jsonic` and `parser` (plus `json`, `debug`,
+  `railroad`) as siblings, build the TS halves (`cd parser/ts && npm
+  install && npm run build`, likewise `jsonic/ts`), then work here. CI
+  (`.github/workflows/build.yml`) does this.
+- *Isolated single-repo checkout:* the `file:` symlinks dangle; install
+  the registry versions instead. See
+  [`TEMPLATE.md` §4](TEMPLATE.md#4-dev-environment-realities) for the exact
+  verified green-build recipe.
 
 ## Authority and alignment rules
 
