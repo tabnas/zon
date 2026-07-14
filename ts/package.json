@@ -44,10 +44,10 @@
     "@tabnas/parser": ">=0"
   },
   "devDependencies": {
-    "@tabnas/debug": "file:../../debug/ts",
-    "@tabnas/jsonic": "file:../../jsonic/ts",
-    "@tabnas/parser": "file:../../parser/ts",
-    "@tabnas/railroad": "file:../../railroad/ts",
+    "@tabnas/debug": "*",
+    "@tabnas/jsonic": "*",
+    "@tabnas/parser": "*",
+    "@tabnas/railroad": "*",
     "@types/node": "25.6.0",
     "typescript": "6.0.3"
   },
