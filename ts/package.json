@@ -1,6 +1,6 @@
 {
   "name": "@tabnas/zon",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "This plugin allows the [Tabnas](https://github.com/tabnas/parser) JSON parser to support Zig Object Notation (ZON) syntax.",
   "main": "dist/zon.js",
   "type": "commonjs",
@@ -18,7 +18,8 @@
   "author": "Richard Rodger (http://richardrodger.com)",
   "repository": {
     "type": "git",
-    "url": "git://github.com/tabnas/zon.git"
+    "url": "git://github.com/tabnas/zon.git",
+    "directory": "ts"
   },
   "scripts": {
     "test": "node --enable-source-maps --test \"dist-test/*.test.js\"",
