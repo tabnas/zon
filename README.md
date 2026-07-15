@@ -1,5 +1,12 @@
 # @tabnas/zon
 
+<!-- tabnas-badges -->
+[![npm](https://tabnas.github.io/status/badges/zon-npm.svg)](https://www.npmjs.com/package/@tabnas/zon)
+[![CI](https://github.com/tabnas/zon/actions/workflows/ci.yml/badge.svg)](https://github.com/tabnas/zon/actions/workflows/ci.yml)
+[![go](https://tabnas.github.io/status/badges/zon-go.svg)](https://pkg.go.dev/github.com/tabnas/zon/go)
+[![tabnas standard](https://tabnas.github.io/status/badges/zon-standard.svg)](https://tabnas.github.io/status/)
+<!-- /tabnas-badges -->
+
 A grammar plugin that teaches the [Tabnas](https://github.com/tabnas/parser)
 parser to read [Zig Object Notation (ZON)](https://ziglang.org/documentation/master/#ZON) —
 the anonymous-struct data format used for `build.zig.zon` manifests.
