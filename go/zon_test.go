@@ -29,9 +29,38 @@ func parseErr(t *testing.T, src string, opts ...map[string]any) error {
 	return err
 }
 
+// normalize recursively converts parsed *OrderedMap nodes into plain
+// map[string]any so value comparisons are order-agnostic. The parser now
+// returns insertion-ordered maps; these tests assert values/structure, not
+// key order, so both sides are flattened before reflect.DeepEqual.
+func normalize(v any) any {
+	switch x := v.(type) {
+	case *jsonic.OrderedMap:
+		m := make(map[string]any, x.Len())
+		for _, k := range x.Keys {
+			m[k] = normalize(x.Vals[k])
+		}
+		return m
+	case map[string]any:
+		m := make(map[string]any, len(x))
+		for k, val := range x {
+			m[k] = normalize(val)
+		}
+		return m
+	case []any:
+		s := make([]any, len(x))
+		for i, val := range x {
+			s[i] = normalize(val)
+		}
+		return s
+	default:
+		return v
+	}
+}
+
 func assertEqual(t *testing.T, label string, got, want any) {
 	t.Helper()
-	if !reflect.DeepEqual(got, want) {
+	if !reflect.DeepEqual(normalize(got), normalize(want)) {
 		t.Errorf("%s: got %#v, want %#v", label, got, want)
 	}
 }
@@ -154,9 +183,9 @@ func TestRealisticZon(t *testing.T) {
 	}`
 	got := parse(t, src)
 	want := map[string]any{
-		"name":                 "example",
-		"version":              "0.0.1",
-		"minimum_zig_version":  "0.14.0",
+		"name":                "example",
+		"version":             "0.0.1",
+		"minimum_zig_version": "0.14.0",
 		"dependencies": map[string]any{
 			"foo": map[string]any{
 				"url":  "https://example.com/foo.tar.gz",
