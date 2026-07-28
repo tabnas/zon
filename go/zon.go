@@ -85,6 +85,7 @@ const grammarText = `
   ]
 }
 `
+
 // --- END EMBEDDED zon-grammar.jsonic ---
 
 // Zon is a jsonic plugin that adds ZON parsing support.
@@ -572,6 +573,10 @@ func parseGrammarText(text string, refs map[jsonic.FuncRef]any) (*jsonic.Grammar
 	if err != nil {
 		return nil, fmt.Errorf("zon: failed to parse grammar text: %w", err)
 	}
+	// The parser now returns insertion-ordered *OrderedMap for parsed objects.
+	// A grammar spec is order-agnostic config, so flatten it to plain
+	// map[string]any trees before the map assertions below.
+	parsed = jsonic.Plainify(parsed)
 	parsedMap, ok := parsed.(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("zon: grammar text did not parse to a map")
