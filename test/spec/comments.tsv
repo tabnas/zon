@@ -1,0 +1,2 @@
+input	expected	opts
+.{\n  // a comment\n  .name = "x", // trailing comment\n  .version = "1.0", // version\n}	{"name":"x","version":"1.0"}

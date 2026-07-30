@@ -1,0 +1,5 @@
+input	expected	opts
+'A'	"A"
+'A'	65	{"charAsNumber":true}
+'\\n'	10	{"charAsNumber":true}
+'\\u{1F600}'	128512	{"charAsNumber":true}
