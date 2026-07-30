@@ -58,11 +58,13 @@ function embedGo() {
     process.exit(1)
   }
 
+  // The blank line before END keeps the result gofmt-clean (gofmt wants
+  // a blank line between the const declaration and the trailing comment).
   const replacement =
     BEGIN +
     '\nconst grammarText = `\n' +
     grammar +
-    '`\n' +
+    '`\n\n' +
     END
 
   src = src.substring(0, startIdx) + replacement + src.substring(endIdx + END.length)

@@ -1,0 +1,5 @@
+input	expected	opts
+"a\\nb"	"a\nb"
+"a\\tb"	"a\tb"
+"a\\\\b"	"a\\b"
+.{\n\t.text = \\\\hello\n\t\t\\\\world\n\t,\n}	{"text":"hello\nworld"}

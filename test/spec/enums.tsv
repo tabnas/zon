@@ -1,0 +1,5 @@
+input	expected	opts
+.foo	"foo"
+.bar_baz	"bar_baz"
+.{ .kind = .red }	{"kind":"red"}
+.{ .kind = .red }	{"kind":{"$enum":"red"}}	{"enumTag":"$enum"}

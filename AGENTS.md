@@ -100,11 +100,11 @@ requirement.
    file — edit `zon-grammar.jsonic` and re-run `npm run embed` (or
    `npm run build`, which embeds first). The Go embed step rejects a
    grammar containing backticks (incompatible with Go raw strings).
-3. The two ports must produce the same values for the same input. There
-   are **no shared `.tsv` fixtures** here; the parity contract is the
-   shared grammar source plus the hand-mirrored case sets in
-   `ts/test/zon.test.ts` and `go/zon_test.go`. When you add or change a
-   parse case, add it to both.
+3. The two ports must produce the same values for the same input. The
+   parity contract is the shared grammar source plus the shared
+   `test/spec/*.tsv` fixtures, which both runtimes auto-discover (see
+   [`test/AGENTS.md`](test/AGENTS.md)). Add a new parse case there; the
+   in-language suites keep only what a fixture cannot express.
 4. The jsonic option overrides (`rule.exclude`, `fixed.token`,
    `tokenSet.KEY`, `string`, `number`, `comment`, `value`, `text.lex`,
    `lex.match`) and the three lex matchers exist in **both** runtimes and
