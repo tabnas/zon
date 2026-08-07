@@ -33,3 +33,13 @@ package-lock.json
 yarn.lock
 
 
+# --- third-party conformance corpus: FETCHED, NEVER COMMITTED ---
+# scripts/fetch-zigzon.sh downloads the pinned ziglang/zig 0.16.0 release and
+# generates cases.json from it. The corpus is upstream MIT-licensed material and
+# is not redistributed here; only the fetch script and test/zigzon/tools/ are
+# tracked. Do not remove these rules.
+test/zigzon/vendor/
+test/zigzon/cases.json
+
+# strictness probe verdicts are generated from inputs.txt by the same oracle
+test/strictness/cases.json

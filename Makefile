@@ -5,7 +5,7 @@
 # repo-set go.work + node_modules symlinks (admin/scripts/link.sh).
 
 .PHONY: all build test clean build-ts build-go test-ts test-go \
-        clean-ts clean-go publish-ts publish-go tags-go reset
+        clean-ts clean-go publish-ts publish-go tags-go reset corpus
 
 all: build test
 
@@ -33,7 +33,14 @@ publish-ts: test-ts
 build-go:
 	cd go && go build ./...
 
-test-go:
+# The conformance corpus is FETCHED, never committed (see scripts/fetch-zigzon.sh
+# and ground rule: no third-party corpus in git). Idempotent, so depending on it
+# costs nothing after the first run. `test-ts` gets it via the ts `pretest` hook;
+# `go test` has no such hook, so `test-go` depends on it explicitly.
+corpus:
+	bash scripts/fetch-zigzon.sh
+
+test-go: corpus
 	cd go && go test -v ./...
 
 clean-go:

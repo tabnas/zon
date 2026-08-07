@@ -186,7 +186,13 @@ describe('doc-examples', () => {
   }
 
   it('found at least one tested example (sanity)', () => {
-    // Not a hard failure if a repo has no `// =>` examples yet.
-    assert.ok(testable >= 0, `tested ${testable} doc example block(s)`)
+    // This assertion used to read `testable >= 0`, which is true for every
+    // possible value — including 0. If the fence extractor or the doc layout
+    // broke, every doc example would silently stop running and the suite would
+    // stay green while testing nothing. This repo's docs DO carry `// =>`
+    // examples, so demanding at least one is the honest bound.
+    assert.ok(0 < testable,
+      `tested ${testable} doc example block(s); the extractor found none, ` +
+      `so the doc examples are not being checked at all`)
   })
 })

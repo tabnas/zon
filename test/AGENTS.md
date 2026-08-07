@@ -1,4 +1,25 @@
-# Agents Guide — shared spec fixtures
+# Agents Guide — test corpora
+
+This directory holds three things:
+
+| Path | What | Committed? |
+|---|---|---|
+| `spec/*.tsv` | hand-written cross-runtime parity fixtures (below) | yes |
+| [`zigzon/`](zigzon/README.md) | conformance corpus from the Zig reference implementation | **tools only** — `cases.json` / `vendor/` are generated and `.gitignore`d |
+| [`strictness/`](strictness/README.md) | leniency probe | `inputs.txt` yes; `cases.json` generated |
+
+**Never commit a third-party corpus.** `zigzon/cases.json` is derived from
+ziglang/zig and is fetched by `scripts/fetch-zigzon.sh` at a SHA-256-pinned
+release. The `.gitignore` rules exist to prevent it being committed; do not
+remove them.
+
+Note the division of labour, which is what makes the conformance numbers mean
+anything: `spec/*.tsv` records what *this repo* expects, so it can only catch
+TS/Go drift. `zigzon/` and `strictness/` are adjudicated by *Zig*, so they can
+catch this repo being wrong in both runtimes at once — which, at the current
+baseline, it frequently is.
+
+## Shared spec fixtures
 
 `spec/*.tsv` holds the cross-runtime conformance fixtures. Both runtimes
 auto-discover and run **every** file in this directory, so a change here

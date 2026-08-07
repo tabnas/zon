@@ -1,0 +1,152 @@
+# Strictness probe inputs — LOCALLY AUTHORED (this file is ours, so it is
+# tracked; the zigzon corpus is third-party and is not).
+#
+# These target the leniency that @tabnas/zon inherits from @tabnas/jsonic.
+# The plugin is a JSONIC plugin: `new Tabnas().use(Zon)` alone cannot parse
+# even `.{ .a = 1 }`, so there is no stricter standalone mode to fall back to —
+# jsonic's relaxed lexer and its "first value wins" top-level behaviour come
+# through unconditionally.
+#
+# THE VERDICTS ARE NOT IN THIS FILE. scripts/fetch-zigzon.sh feeds every line
+# below to the pinned Zig reference implementation (test/zigzon/tools/oracle.zig)
+# and writes test/strictness/cases.json. Nothing here asserts what ZON means;
+# only Zig does. That is deliberate — a probe list that also carried its own
+# expected answers would just be this repo grading itself.
+#
+# Format: one input per line. `#` in column 1 is a comment. Escapes \n \t \\
+# are decoded, so a line can carry a multi-line document.
+
+# --- numbers: jsonic's relaxed numeric lexer -------------------------------
+1
+-1
++1
+0
+-0
+0.0
+-0.0
+1.5
+.5
+5.
+0123
+00
+1_0
+1__0
+1_
+_1
+0x2A
+0X2A
+0x_2A
+0o52
+0O52
+0b1010
+0B1010
+1e3
+1E3
+1e+3
+1e-3
+1.0e3
+0x1p4
+0x1.8p1
+inf
+-inf
+nan
+-nan
+Infinity
+NaN
+1.0f
+1n
+--1
+1-
+0xg
+0b2
+0o8
+
+# --- top level: jsonic's "first value wins, ignore the rest" ---------------
+1 2
+true false
+"a" "b"
+.foo .bar
+.a.b
+.{}.a
+.{ .a = 1 }.a
+.{ .a = 1 },
+.{ .a = 1 } .{ .b = 2 }
+1,2
+[1,2]
+{"a":1}
+{ a = 1 }
+.{ .a = 1 }}
+.{ .a = 1
+.a = 1
+
+# --- structs / tuples ------------------------------------------------------
+.{}
+.{ }
+.{ .a = 1 }
+.{ .a = 1, }
+.{ .a = 1, .b = 2 }
+.{ .a = 1, .a = 2 }
+.{ .a = 1 .b = 2 }
+.{ .a = 1; .b = 2 }
+.{ a = 1 }
+.{ "a" = 1 }
+.{ .a: 1 }
+.{ 1, 2 }
+.{ 1, 2, }
+.{ 1 2 }
+.{ , }
+.{ .a = }
+.{ = 1 }
+.{ .@"a b" = 1 }
+.{ .@"" = 1 }
+.{ .a = .{ .b = .{ .c = 1 } } }
+
+# --- enum literals ---------------------------------------------------------
+.foo
+.foo_bar
+.@"foo bar"
+.@""
+.0
+.
+..
+. foo
+
+# --- strings ---------------------------------------------------------------
+"hello"
+'hello'
+"a\nb"
+"a\qb"
+"unterminated
+"\u{1F600}"
+"\u{110000}"
+"\x41"
+"tab\there"
+\\line one\n\\line two
+\\only line
+
+# --- char literals ---------------------------------------------------------
+'a'
+'\n'
+'\u{1F600}'
+'\u{110000}'
+''
+'ab'
+'unterminated
+
+# --- comments --------------------------------------------------------------
+// line comment\n42
+42 // trailing
+/* block */ 42
+# hash comment\n42
+.{ // c\n    .a = 1,\n}
+
+# --- literals / misc -------------------------------------------------------
+true
+false
+null
+undefined
+TRUE
+True
+
+.{ .a = null }
+.{ .a = undefined }
