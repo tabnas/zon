@@ -1,0 +1,122 @@
+# Conformance CI — runs the ZON corpus fetch BEFORE the tests, in both runtimes.
+#
+# WHY THIS EXISTS SEPARATELY FROM ci.yml
+#
+# ci.yml delegates to the shared reusable workflow
+# tabnas/.github/.github/workflows/polyglot-ci.yml, which lives in another repo
+# and cannot be edited from here. That workflow runs `npm test` and
+# `go test ./...` with no corpus-fetch step. Historically that is exactly how
+# these conformance suites came to silently not run: the corpus was fetched by
+# hand, CI never had it, and the suites skipped while the tick stayed green.
+#
+# Two independent guards close that hole:
+#
+#   1. THIS workflow explicitly runs `scripts/fetch-zigzon.sh` before the tests,
+#      so the conformance suites always have a corpus in CI.
+#   2. The suites themselves FAIL LOUDLY (they never skip) when the corpus is
+#      absent — see ts/test/zigzon.test.ts and go/zigzon_test.go. So even under
+#      a workflow that forgets to fetch, a missing corpus is reported as a
+#      failure, never as a pass.
+#
+# `ts/package.json` additionally declares a `pretest` hook that runs the fetch,
+# so `npm test` pulls the corpus wherever it runs, including under the shared
+# workflow.
+#
+# The suites are RED on purpose in this phase, so this workflow WILL fail. That
+# is the intended reading of the dial. It is deliberately NOT marked
+# `continue-on-error`: masking the result would recreate the very defect this
+# work exists to remove. Turn it green by fixing the grammar, never by
+# softening the workflow.
+
+name: conformance
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          path: zon
+
+      - name: Clone tabnas dependencies
+        shell: bash
+        run: |
+          set -e
+          for dep in parser jsonic json debug abnf railroad; do
+            git clone --depth 1 "https://github.com/tabnas/$dep.git" "$dep"
+          done
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.24'
+
+      # Cache the pinned zig release + toolchain, keyed on the fetch script so
+      # a pin change busts the cache. The corpus itself is regenerated every
+      # run; it is never committed and never restored from a stale cache.
+      - name: Cache pinned zig downloads
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4
+        with:
+          path: zon/test/zigzon/vendor
+          key: zigzon-${{ runner.os }}-${{ hashFiles('zon/scripts/fetch-zigzon.sh') }}
+
+      # THE STEP THAT MUST RUN BEFORE THE TESTS.
+      - name: Fetch the ZON conformance corpus (pinned ziglang/zig 0.16.0)
+        shell: bash
+        working-directory: zon
+        run: bash scripts/fetch-zigzon.sh
+
+      - name: Assert the corpus is actually present
+        shell: bash
+        working-directory: zon
+        run: |
+          set -e
+          test -s test/zigzon/cases.json    || { echo "::error::zigzon corpus missing"; exit 1; }
+          test -s test/strictness/cases.json || { echo "::error::strictness verdicts missing"; exit 1; }
+          node -e '
+            const z = require("./test/zigzon/cases.json").cases
+            const s = require("./test/strictness/cases.json").cases
+            const half = (c, n) => {
+              if (!c.some(x => x.valid))  throw new Error(n + ": no valid cases")
+              if (!c.some(x => !x.valid)) throw new Error(n + ": no invalid cases")
+            }
+            half(z, "zigzon"); half(s, "strictness")
+            console.log("corpus ok:", z.length, "documents,", s.length, "probes")
+          '
+
+      - name: Build ts stack
+        shell: bash
+        run: |
+          set -e
+          for pkg in parser debug json abnf railroad jsonic zon; do
+            ( cd "$pkg/ts" && npm i && npm run build --if-present )
+          done
+
+      - name: Conformance (TypeScript)
+        shell: bash
+        working-directory: zon/ts
+        run: npm test
+
+      - name: Set up go workspace
+        shell: bash
+        run: |
+          set -e
+          go work init
+          for gm in $(find . -name go.mod -not -path '*/vendor/*' -not -path '*/node_modules/*'); do
+            go work use "$(dirname "$gm")"
+          done
+
+      - name: Conformance (Go)
+        shell: bash
+        working-directory: zon/go
+        run: go test -v ./...
