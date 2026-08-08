@@ -58,8 +58,8 @@ Registers and immediately applies the plugin. Returns the engine, so
 registrations chain (`new Tabnas().use(jsonic).use(Zon, opts)`). The
 plugin merges `options` over `Zon.defaults`, installs the embedded ZON
 grammar, and re-applies its jsonic option overrides (struct/tuple
-tokens, `=` separator, identifier keys, Zig escapes, ZON comments, and
-the three custom lex matchers).
+tokens, `=` separator, identifier keys, Zig escapes, ZON comments, the
+strict Zig number lexer, and the five custom lex matchers).
 
 The instance is reusable and stateless across parses; build it once
 and reuse it. Building the grammar dominates a parse, so do not
@@ -70,7 +70,8 @@ reconstruct the engine per call.
 Parses a ZON source string and returns the resulting JavaScript value.
 Objects come back as maps built with `Object.create(null)` (no
 prototype); arrays are plain arrays; scalars are `number`, `string`,
-`boolean`, or `null`. A failed parse throws (see [Errors](#errors)).
+`boolean`, or `null` — plus `bigint` for an integer literal too large to
+be an exact double. A failed parse throws (see [Errors](#errors)).
 
 ## Options
 
@@ -138,11 +139,15 @@ the key/value separator to `=`.
 A struct literal opens with `.{`, contains `.field = value` pairs
 separated by commas, and closes with `}`. Field names are identifiers
 (`[A-Za-z_][A-Za-z0-9_]*`), written with a leading dot that is
-stripped from the key.
+stripped from the key. A name that is not a legal identifier is written
+`.@"..."` — any string literal, with the same escapes — and a struct may
+not repeat a field name.
 
 ```
 .{ .a = 1, .b = 2 }     => { a: 1, b: 2 }
 .{ .a = .{ .b = 1 } }   => { a: { b: 1 } }
+.{ .@"a b" = 1 }        => { 'a b': 1 }
+.{ .a = 1, .a = 2 }     => error: duplicate struct field name
 ```
 
 ### Tuples (lists)
@@ -158,8 +163,8 @@ array.
 ```
 
 The struct-vs-tuple decision is made at lex time by peeking past the
-`.{`: if the next significant token is `.identifier` followed by `=`,
-it is a struct; otherwise it is a tuple.
+`.{`: if the next significant token is a field name (`.identifier` or
+`.@"..."`) followed by `=`, it is a struct; otherwise it is a tuple.
 
 ### Empty literal
 
@@ -188,12 +193,33 @@ A trailing comma before `}` is allowed in both structs and tuples.
 | Hex | `0x2a` | `42` |
 | Octal | `0o52` | `42` |
 | Binary | `0b101010` | `42` |
+| Hex float | `0x1.8p1` | `3` |
+| Exponent | `1e5`, `12_3.0E+77` | `100000`, `1.23e+79` |
 | Digit separator | `1_000_000` | `1000000` |
+| Infinity / NaN | `inf`, `-inf`, `nan` | `Infinity`, `-Infinity`, `NaN` |
+| Big integer | `36893488147419103231` | `36893488147419103231n` (a `bigint`) |
 | Boolean | `true`, `false` | `true`, `false` |
 | Null | `null` | `null` |
 | String | `"hello"` | `'hello'` |
-| Enum literal | `.red` | `'red'` (or `{ tag: 'red' }`) |
+| Enum literal | `.red`, `.@"a b"` | `'red'`, `'a b'` (or `{ tag: ... }`) |
 | Char literal | `'A'` | `'A'` (or `65`) |
+
+### Numbers are Zig numbers, not relaxed-JSON numbers
+
+The plugin replaces jsonic's number lexer with one that implements Zig's
+literal grammar exactly, so ZON's strictness is preserved:
+
+```
++1      .5      5.      0123      00      -0
+1__0    1_      _1      0x_2A     0X2A    0O52
+0b12    0o18    1abc    1e        0b1.1   0.1.2
+```
+
+are all **rejected**, as the zig compiler rejects them. A leading `-` is a
+negation prefix and may be separated by space (`- 1`); `-nan` is not a
+literal. An integer whose exact value does not fit an IEEE-754 double is
+returned as a `bigint` rather than silently rounded — everything else is a
+`number`.
 
 ### Strings
 
@@ -210,8 +236,10 @@ literals). Zig-flavoured escapes are recognised: `\n`, `\r`, `\t`,
 ### Multi-line strings
 
 Consecutive lines beginning with `\\` form one string. Each line
-contributes its text after the `\\`; lines are joined with `\n`.
-Inter-line whitespace before the next `\\` is allowed.
+contributes its text after the `\\`; lines are joined with `\n`. Zig's
+tokenizer lexes the whole run as one token and skips the whitespace
+between the lines, so **blank lines inside the run continue the literal**
+(contributing an empty line) rather than ending it.
 
 ```
 \\hello
@@ -234,7 +262,9 @@ point.
 
 ### Comments
 
-`//` line comments only. They are discarded.
+`//` line comments only. They are discarded. `//!` and `///` are Zig
+**doc** comments, which ZON rejects; `////` (four or more slashes) is an
+ordinary comment again.
 
 ```
 .{
@@ -257,7 +287,7 @@ diagram legend):
 | `#OS` | `.{` | start of a tuple (list) |
 | `#CB` | `}` | close of struct or tuple |
 | `#CL` | `=` | key/value separator |
-| `#TX` | `.ident` | field name (key) or enum literal (value) |
+| `#TX` | `.ident`, `.@"..."` | field name (key) or enum literal (value) |
 | `VAL` | — | a value: number, string, `true`/`false`/`null`, or `.enum` |
 
 `{`, `[`, and `]` are **not** tokens — they are removed, so a bare `{`

@@ -69,7 +69,7 @@ elem:
 
 Tokens:
   CS  = } — end of a tuple (list)
-  KEY = field name: .identifier (dot stripped)
+  KEY = field name: .identifier or .@"..." (dot stripped)
   OB  = .{ — start of a struct (map)
   OS  = .{ — start of a tuple (list)
   VAL = value: number, string, true/false/null, or .enum

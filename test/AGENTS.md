@@ -39,6 +39,14 @@ both runtimes without touching either runner.
 - Prefer adding a fixture here over a one-off in-language assertion when a
   case is expressible as input → output. That is what keeps the two
   runtimes honest against each other.
+- What a fixture **cannot** express, because both runners compare after a
+  JSON round-trip: `bigint` / `*big.Int` values, `Infinity`, `NaN`, and the
+  `-0` / `0` distinction. Those live in `ts/test/zon.test.ts` and
+  `go/zon_test.go`, mirrored case for case.
+- [`strict.tsv`](spec/strict.tsv) collects the inputs the Zig reference
+  implementation REJECTS. Every verdict there came from the oracle in
+  `scripts/fetch-zigzon.sh`, not from a judgement call — if you add a row,
+  get the verdict the same way.
 - TypeScript is canonical. If the two runtimes disagree, the TS behaviour is
   the expected value — unless Go has exposed a genuine TS defect, in which
   case fix TS first and pin the corrected behaviour here.

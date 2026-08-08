@@ -148,6 +148,7 @@ tabnaszon.Parse(`.{ .kind = .red }`, tabnaszon.ZonOptions{EnumTag: "$enum"})
 | Tuple / empty literal | `[]any` |
 | String, enum literal, char-as-string | `string` |
 | Number (any base, float, char-as-number) | `float64` |
+| Integer too large for an exact `float64` | `*big.Int` |
 | Boolean | `bool` |
 | Null | `nil` |
 | Tagged enum (`EnumTag` set) | `map[string]any{tag: name}` |
@@ -162,11 +163,15 @@ the key/value separator to `=`.
 
 Open with `.{`, contain `.field = value` pairs separated by commas,
 close with `}`. Field names are identifiers
-(`[A-Za-z_][A-Za-z0-9_]*`); the leading dot is stripped from the key.
+(`[A-Za-z_][A-Za-z0-9_]*`); the leading dot is stripped from the key. A
+name that is not a legal identifier is written `.@"..."` — any string
+literal, with the same escapes — and a struct may not repeat a name.
 
 ```
 .{ .a = 1, .b = 2 }       => map[string]any{"a": 1, "b": 2}
 .{ .a = .{ .b = 1 } }     => map[string]any{"a": map[string]any{"b": 1}}
+.{ .@"a b" = 1 }          => map[string]any{"a b": 1}
+.{ .a = 1, .a = 2 }       => error: duplicate struct field name
 ```
 
 ### Tuples (lists)
@@ -180,8 +185,8 @@ by commas, and close with `}`. Produces a `[]any`.
 ```
 
 The struct-vs-tuple decision is made at lex time by peeking past `.{`:
-if the next significant token is `.identifier` followed by `=`, it is a
-struct; otherwise a tuple.
+if the next significant token is a field name (`.identifier` or
+`.@"..."`) followed by `=`, it is a struct; otherwise a tuple.
 
 ### Empty literal
 
@@ -209,12 +214,32 @@ Allowed before `}` in both structs and tuples.
 | Hex | `0x2a` | `float64(42)` |
 | Octal | `0o52` | `float64(42)` |
 | Binary | `0b101010` | `float64(42)` |
+| Hex float | `0x1.8p1` | `float64(3)` |
+| Exponent | `1e5` | `float64(100000)` |
 | Digit separator | `1_000_000` | `float64(1000000)` |
+| Infinity / NaN | `inf`, `-inf`, `nan` | `math.Inf(1)`, `math.Inf(-1)`, `math.NaN()` |
+| Big integer | `36893488147419103231` | a `*big.Int` |
 | Boolean | `true`, `false` | `true`, `false` |
 | Null | `null` | `nil` |
 | String | `"hello"` | `"hello"` |
-| Enum literal | `.red` | `"red"` (or tagged map) |
+| Enum literal | `.red`, `.@"a b"` | `"red"`, `"a b"` (or tagged map) |
 | Char literal | `'A'` | `"A"` (or `float64(65)`) |
+
+### Numbers are Zig numbers, not relaxed-JSON numbers
+
+The plugin replaces jsonic's number lexer with one that implements Zig's
+literal grammar exactly, so ZON's strictness is preserved:
+
+```
++1      .5      5.      0123      00      -0
+1__0    1_      _1      0x_2A     0X2A    0O52
+0b12    0o18    1abc    1e        0b1.1   0.1.2
+```
+
+are all **rejected**, as the zig compiler rejects them. A leading `-` is a
+negation prefix and may be separated by space (`- 1`); `-nan` is not a
+literal. An integer whose exact value does not fit a `float64` is returned
+as a `*big.Int` rather than silently rounded.
 
 ### Strings
 
@@ -230,7 +255,10 @@ escapes are an error.
 ### Multi-line strings
 
 Consecutive lines beginning with `\\` form one string. Each line
-contributes its text after the `\\`; lines join with `\n`.
+contributes its text after the `\\`; lines join with `\n`. Zig lexes the
+whole run as one token and skips the whitespace between the lines, so
+**blank lines inside the run continue the literal** (contributing an empty
+line) rather than ending it.
 
 ```
 \\hello
@@ -246,8 +274,10 @@ string; with `CharAsNumber` set, the numeric code point as `float64`.
 
 ### Comments
 
-`//` line comments only; discarded. (Hash `#` and block `/* */`
-comments are disabled by the plugin.)
+`//` line comments only; discarded. `//!` and `///` are Zig **doc**
+comments, which ZON rejects; `////` (four or more slashes) is an ordinary
+comment again. (Hash `#` and block `/* */` comments are disabled by the
+plugin.)
 
 ```
 .{
@@ -264,7 +294,7 @@ comments are disabled by the plugin.)
 | `#OS` | `.{` | start of a tuple (list) |
 | `#CB` | `}` | close of struct or tuple |
 | `#CL` | `=` | key/value separator |
-| `#TX` | `.ident` | field name (key) or enum literal (value) |
+| `#TX` | `.ident`, `.@"..."` | field name (key) or enum literal (value) |
 | `VAL` | — | number, string, `true`/`false`/`null`, or `.enum` |
 
 `{`, `[`, `]` are not tokens — a bare `{` is a syntax error.

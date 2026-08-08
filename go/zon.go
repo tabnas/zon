@@ -15,6 +15,8 @@ package tabnaszon
 
 import (
 	"fmt"
+	"math"
+	"math/big"
 	"strconv"
 	"strings"
 	"sync"
@@ -109,7 +111,34 @@ func Zon(j *jsonic.Jsonic, options map[string]any) error {
 	// produced from the enum token. The val rule is declared in the grammar
 	// text, so wireStateActions binds this plain `@val-ac` name as an append
 	// to the val rule's AC phase (after jsonic's openval-restore @val-ac).
-	refs := map[jsonic.FuncRef]any{}
+	refs := map[jsonic.FuncRef]any{
+		// Zig rejects a struct literal that repeats a field name. jsonic's
+		// own `@pair-bc-jsonic` performs the assignment (last one wins), so
+		// this guard has to run *before* it — hence `/prepend`. Go state
+		// actions cannot return an error token, so signal via ctx.ParseErr
+		// (the engine's own error channel) instead.
+		"@pair-bc/prepend": jsonic.StateAction(func(r *jsonic.Rule, ctx *jsonic.Context) {
+			if r.U["pair"] != true {
+				return
+			}
+			key, ok := r.U["key"].(string)
+			if !ok || r.Node == nil {
+				return
+			}
+			if !nodeMapHasKey(r.Node, key) {
+				return
+			}
+			tkn := r.O0
+			if tkn == nil {
+				tkn = ctx.T0
+			}
+			if tkn == nil {
+				return
+			}
+			tkn.Bad("zon_dup_field", map[string]any{"key": key})
+			ctx.ParseErr = tkn
+		}),
+	}
 	if enumTag != "" {
 		refs["@val-ac"] = jsonic.StateAction(func(r *jsonic.Rule, _ *jsonic.Context) {
 			if r.Child != nil && !jsonic.IsUndefined(r.Child.Node) {
@@ -157,7 +186,7 @@ func Zon(j *jsonic.Jsonic, options map[string]any) error {
 			},
 		},
 		TokenSet: map[string][]string{
-			// ZON field names are identifiers only.
+			// ZON field names are identifiers (.ident or .@"...") only.
 			"KEY": {"#TX"},
 		},
 		String: &jsonic.StringOptions{
@@ -166,12 +195,18 @@ func Zon(j *jsonic.Jsonic, options map[string]any) error {
 			Escape:       map[string]string{"n": "\n", "r": "\r", "t": "\t", "\\": "\\", "\"": "\"", "'": "'"},
 			AllowUnknown: boolPtr(false),
 		},
+		// jsonic's relaxed number lexer accepts `+1`, `.5`, `5.`, `0123`,
+		// `1__0` and friends, none of which are ZON. The zonNumber matcher
+		// below implements Zig's numeric literal grammar exactly instead.
 		Number: &jsonic.NumberOptions{
-			Lex: boolPtr(true),
-			Hex: boolPtr(true),
-			Oct: boolPtr(true),
-			Bin: boolPtr(true),
-			Sep: "_",
+			Lex: boolPtr(false),
+		},
+		Error: map[string]string{
+			"zon_number":      "invalid ZON number literal: {src}",
+			"zon_ident":       "invalid ZON identifier: {src}",
+			"zon_char":        "invalid ZON character literal: {src}",
+			"zon_doc_comment": "doc comments are not allowed in ZON: {src}",
+			"zon_dup_field":   "duplicate struct field name: {src}",
 		},
 		Comment: &jsonic.CommentOptions{
 			Lex: boolPtr(true),
@@ -200,6 +235,10 @@ func Zon(j *jsonic.Jsonic, options map[string]any) error {
 				"zonDot":         {Order: 100000, Make: buildZonDotMatcher()},
 				"zonMultiString": {Order: 110000, Make: buildZonMultiStringMatcher()},
 				"zonChar":        {Order: 120000, Make: buildZonCharMatcher(charAsNumber)},
+				"zonNumber":      {Order: 130000, Make: buildZonNumberMatcher()},
+				// Must out-order jsonic's comment matcher so `//!` and `///`
+				// are rejected instead of eaten as ordinary line comments.
+				"zonDocComment": {Order: 140000, Make: buildZonDocCommentMatcher()},
 			},
 		},
 	}
@@ -287,12 +326,13 @@ func Parse(src string, opts ...ZonOptions) (any, error) {
 
 // Custom lex matcher for `.`-prefixed tokens:
 //
-//	`.{`          -> #OB if followed by `.ident =`, else #OS
-//	`.identifier` -> #TX (Val = identifier, Use["zonEnum"] = true)
+//	`.{`           -> #OB if followed by `.ident =`, else #OS
+//	`.identifier`  -> #TX (Val = identifier, Use["zonEnum"] = true)
+//	`.@"any name"` -> #TX (Val = the decoded string, Use["zonEnum"] = true)
 //
 // Runs ahead of the fixed-token matcher so it reliably owns the `.` prefix.
 func buildZonDotMatcher() jsonic.MakeLexMatcher {
-	return func(_ *jsonic.LexConfig, _ *jsonic.Options) jsonic.LexMatcher {
+	return func(cfg *jsonic.LexConfig, _ *jsonic.Options) jsonic.LexMatcher {
 		return func(lex *jsonic.Lex, _ *jsonic.Rule) *jsonic.Token {
 			pnt := lex.Cursor()
 			src := lex.Src
@@ -301,74 +341,227 @@ func buildZonDotMatcher() jsonic.MakeLexMatcher {
 				return nil
 			}
 
+			// Zig's tokenizer emits `.` and what follows as separate tokens,
+			// so whitespace and comments may sit between them (`. foo`).
+			dI, dRI, dCI := skipInsigPos(cfg, src, sI+1, pnt.RI, pnt.CI+1)
+
+			advance := func(end int) {
+				pnt.SI = end
+				pnt.RI = dRI
+				pnt.CI = dCI + (end - dI)
+			}
+
 			// `.{` opens a struct literal. Decide map vs list by peeking.
-			if sI+1 < len(src) && src[sI+1] == '{' {
+			if dI < len(src) && src[dI] == '{' {
 				var tkn *jsonic.Token
-				if peekIsMapOpen(src, sI+2) {
-					tkn = lex.Token("#OB", jsonic.TinOB, nil, ".{")
+				if peekIsMapOpen(cfg, src, dI+1) {
+					tkn = lex.Token("#OB", jsonic.TinOB, nil, src[sI:dI+1])
 				} else {
-					tkn = lex.Token("#OS", jsonic.TinOS, nil, ".{")
+					tkn = lex.Token("#OS", jsonic.TinOS, nil, src[sI:dI+1])
 				}
-				pnt.SI = sI + 2
-				pnt.CI += 2
+				advance(dI + 1)
+				return tkn
+			}
+
+			// `.@"..."` - escaped identifier: any string may name a field or
+			// an enum literal. Zig rejects an empty one and one with a NUL.
+			if dI+1 < len(src) && src[dI] == '@' && src[dI+1] == '"' {
+				val, end, ok := decodeZigString(src, dI+2)
+				if !ok || val == "" || strings.IndexByte(val, 0) >= 0 {
+					bad := dI + 2
+					if ok {
+						bad = end
+					}
+					return zonBad(lex, "zon_ident", src, sI, bad)
+				}
+				tkn := lex.Token("#TX", jsonic.TinTX, val, src[sI:end])
+				tkn.Use = map[string]any{"zonEnum": true}
+				advance(end)
 				return tkn
 			}
 
 			// `.identifier` - field name or enum literal.
-			if sI+1 >= len(src) || !isIdStart(src[sI+1]) {
+			if dI >= len(src) || !isIdStart(src[dI]) {
 				return nil
 			}
-			eI := sI + 1
+			eI := dI
 			for eI < len(src) && isIdCont(src[eI]) {
 				eI++
 			}
 
-			srcText := src[sI:eI]
-			name := src[sI+1 : eI]
-			tkn := lex.Token("#TX", jsonic.TinTX, name, srcText)
+			tkn := lex.Token("#TX", jsonic.TinTX, src[dI:eI], src[sI:eI])
 			tkn.Use = map[string]any{"zonEnum": true}
-			pnt.SI = eI
-			pnt.CI += eI - sI
+			advance(eI)
 			return tkn
 		}
 	}
 }
 
+// zonBad builds a #BD error token spanning src[start:end], so the error
+// message can quote the whole offending literal ({src}).
+func zonBad(lex *jsonic.Lex, code, src string, start, end int) *jsonic.Token {
+	if end > len(src) {
+		end = len(src)
+	}
+	if end <= start {
+		end = start + 1
+		if end > len(src) {
+			end = len(src)
+		}
+	}
+	tkn := lex.Token("#BD", jsonic.TinBD, nil, src[start:end])
+	tkn.Err = code
+	tkn.Why = code
+	return tkn
+}
+
+// decodeZigString decodes a Zig double-quoted string body starting at i (just
+// past the opening quote), returning the value, the index just past the
+// closing quote, and whether the literal was well formed. Used for `.@"..."`
+// escaped identifiers; ordinary string literals are lexed by jsonic.
+func decodeZigString(src string, i int) (string, int, bool) {
+	var b strings.Builder
+	for i < len(src) {
+		c := src[i]
+		if c == '"' {
+			return b.String(), i + 1, true
+		}
+		if c == '\n' || c == '\r' {
+			return "", i, false
+		}
+		if c != '\\' {
+			b.WriteByte(c)
+			i++
+			continue
+		}
+		if i+1 >= len(src) {
+			return "", i, false
+		}
+		switch e := src[i+1]; e {
+		case 'n':
+			b.WriteByte('\n')
+			i += 2
+		case 'r':
+			b.WriteByte('\r')
+			i += 2
+		case 't':
+			b.WriteByte('\t')
+			i += 2
+		case '\\', '\'', '"':
+			b.WriteByte(e)
+			i += 2
+		case 'x':
+			if i+4 > len(src) || !isHex(src[i+2:i+4]) {
+				return "", i, false
+			}
+			n, err := strconv.ParseInt(src[i+2:i+4], 16, 32)
+			if err != nil {
+				return "", i, false
+			}
+			b.WriteByte(byte(n))
+			i += 4
+		case 'u':
+			if i+2 >= len(src) || src[i+2] != '{' {
+				return "", i, false
+			}
+			end := strings.IndexByte(src[i+3:], '}')
+			if end < 0 {
+				return "", i, false
+			}
+			end += i + 3
+			hex := src[i+3 : end]
+			if !isHex(hex) {
+				return "", i, false
+			}
+			n, err := strconv.ParseInt(hex, 16, 64)
+			if err != nil || n > 0x10ffff {
+				return "", i, false
+			}
+			if n == 0 {
+				b.WriteByte(0)
+			} else {
+				b.WriteRune(rune(n))
+			}
+			i = end + 1
+		default:
+			return "", i, false
+		}
+	}
+	return "", i, false
+}
+
 // peekIsMapOpen returns true if the source position inside `.{ ... }` begins
-// with `<ws>.ident<ws>=`, meaning a struct/map literal rather than a tuple.
-func peekIsMapOpen(src string, start int) bool {
-	i := skipInsig(src, start)
+// with a field name (`.ident` or `.@"..."`) followed by `=`, meaning a
+// struct/map literal rather than a tuple.
+func peekIsMapOpen(cfg *jsonic.LexConfig, src string, start int) bool {
+	i := skipInsig(cfg, src, start)
 	if i >= len(src) || src[i] != '.' {
 		return false
 	}
-	i++
-	if i >= len(src) || !isIdStart(src[i]) {
-		return false
-	}
-	i++
-	for i < len(src) && isIdCont(src[i]) {
+	i = skipInsig(cfg, src, i+1)
+	if i+1 < len(src) && src[i] == '@' && src[i+1] == '"' {
+		_, end, ok := decodeZigString(src, i+2)
+		if !ok {
+			return false
+		}
+		i = end
+	} else {
+		if i >= len(src) || !isIdStart(src[i]) {
+			return false
+		}
 		i++
+		for i < len(src) && isIdCont(src[i]) {
+			i++
+		}
 	}
-	i = skipInsig(src, i)
+	i = skipInsig(cfg, src, i)
 	return i < len(src) && src[i] == '='
 }
 
 // skipInsig advances past whitespace, newlines, and `//` line comments.
-func skipInsig(src string, i int) int {
+func skipInsig(cfg *jsonic.LexConfig, src string, i int) int {
+	out, _, _ := skipInsigPos(cfg, src, i, 1, 1)
+	return out
+}
+
+// skipInsigPos is skipInsig with row/column tracking, so a token that follows
+// an insignificant run still reports an accurate source position.
+func skipInsigPos(cfg *jsonic.LexConfig, src string, i, rI, cI int) (int, int, int) {
 	for i < len(src) {
 		c := src[i]
-		if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
+		if cfg.LineChars[rune(c)] {
+			if cfg.RowChars[rune(c)] {
+				rI++
+			}
+			cI = 1
 			i++
+		} else if c == ' ' || c == '\t' {
+			i++
+			cI++
 		} else if c == '/' && i+1 < len(src) && src[i+1] == '/' {
-			i += 2
-			for i < len(src) && src[i] != '\n' && src[i] != '\r' {
+			for i < len(src) && !cfg.LineChars[rune(src[i])] {
 				i++
+				cI++
 			}
 		} else {
 			break
 		}
 	}
-	return i
+	return i, rI, cI
+}
+
+// nodeMapHasKey reports whether the map node already carries `key`. The
+// engine's default object node is an *OrderedMap (insertion order), but a
+// plain map may be configured instead.
+func nodeMapHasKey(node any, key string) bool {
+	switch n := node.(type) {
+	case *jsonic.OrderedMap:
+		return n.Has(key)
+	case map[string]any:
+		_, ok := n[key]
+		return ok
+	}
+	return false
 }
 
 func isIdStart(c byte) bool {
@@ -416,15 +609,31 @@ func buildZonMultiStringMatcher() jsonic.MakeLexMatcher {
 					}
 				}
 
-				// Look for another `\\` continuation after whitespace.
+				// Look for another `\\` continuation. Zig's tokenizer treats
+				// the whole run of `\\` lines as ONE token and skips the
+				// whitespace between them, so blank lines in the middle
+				// continue the literal (contributing nothing) rather than
+				// ending it.
 				peek := sI
-				for peek < len(src) && (src[peek] == ' ' || src[peek] == '\t') {
-					peek++
+				peekR := 0
+				for peek < len(src) {
+					pc := src[peek]
+					if pc == ' ' || pc == '\t' {
+						peek++
+					} else if cfg.LineChars[rune(pc)] {
+						if cfg.RowChars[rune(pc)] {
+							peekR++
+						}
+						peek++
+					} else {
+						break
+					}
 				}
 				if peek+1 >= len(src) || src[peek] != '\\' || src[peek+1] != '\\' {
 					break
 				}
 				sI = peek
+				rI += peekR
 			}
 
 			val := strings.Join(parts, "\n")
@@ -519,6 +728,10 @@ func buildZonCharMatcher(charAsNumber bool) jsonic.MakeLexMatcher {
 						return nil
 					}
 					codepoint = int(n)
+					// Zig: the escape must name a valid unicode scalar value.
+					if codepoint > 0x10ffff {
+						return zonBad(lex, "zon_char", src, sI, end+2)
+					}
 					i = end + 1
 				default:
 					return nil
@@ -527,6 +740,11 @@ func buildZonCharMatcher(charAsNumber bool) jsonic.MakeLexMatcher {
 				r, size := utf8.DecodeRuneInString(src[i:])
 				if r == utf8.RuneError && size <= 1 {
 					return nil
+				}
+				// A raw control character (notably a literal newline) is not
+				// a character literal in Zig — it is an invalid token.
+				if r < 0x20 || r == 0x7f {
+					return zonBad(lex, "zon_char", src, sI, i+1)
 				}
 				codepoint = int(r)
 				i += size
@@ -552,6 +770,341 @@ func buildZonCharMatcher(charAsNumber bool) jsonic.MakeLexMatcher {
 			return tkn
 		}
 	}
+}
+
+// `//!` and `///` are Zig DOC comments, which ZON rejects outright. `////`
+// and longer runs are plain line comments. This matcher only ever fails the
+// lex: an ordinary `//` comment falls through to jsonic's comment matcher.
+func buildZonDocCommentMatcher() jsonic.MakeLexMatcher {
+	return func(_ *jsonic.LexConfig, _ *jsonic.Options) jsonic.LexMatcher {
+		return func(lex *jsonic.Lex, _ *jsonic.Rule) *jsonic.Token {
+			pnt := lex.Cursor()
+			src := lex.Src
+			sI := pnt.SI
+			if sI+2 >= len(src) || src[sI] != '/' || src[sI+1] != '/' {
+				return nil
+			}
+			c := src[sI+2]
+			if c == '!' || (c == '/' && (sI+3 >= len(src) || src[sI+3] != '/')) {
+				return zonBad(lex, "zon_doc_comment", src, sI, sI+3)
+			}
+			return nil
+		}
+	}
+}
+
+// Zig numeric literals, as ZON defines them. This replaces jsonic's relaxed
+// number lexer (Number.Lex false) because that one happily accepts `+1`,
+// `.5`, `5.`, `0123`, `00`, `1__0` and `0x_2A`, none of which are ZON.
+//
+// Accepted: decimal / `0x` / `0o` / `0b` integers with `_` separators between
+// digits, decimal and hexadecimal floats (`1.5e3`, `0x1.8p1`, `0x103.70`),
+// the `inf` and `nan` keywords, and a leading `-` on any of those except
+// `nan`. Integers whose exact value is not representable as a float64 are
+// returned as a *big.Int rather than silently rounded (TS: bigint).
+func buildZonNumberMatcher() jsonic.MakeLexMatcher {
+	return func(_ *jsonic.LexConfig, _ *jsonic.Options) jsonic.LexMatcher {
+		return func(lex *jsonic.Lex, _ *jsonic.Rule) *jsonic.Token {
+			pnt := lex.Cursor()
+			src := lex.Src
+			sI := pnt.SI
+			if sI >= len(src) {
+				return nil
+			}
+
+			i := sI
+			neg := false
+			if src[i] == '-' {
+				neg = true
+				i++
+				for i < len(src) && (src[i] == ' ' || src[i] == '\t') {
+					i++
+				}
+			}
+			if i >= len(src) {
+				return nil
+			}
+
+			// The `inf` / `nan` keywords. Zig allows `-inf` but not `-nan`.
+			if c := src[i]; c == 'i' || c == 'n' {
+				if i+3 <= len(src) {
+					kw := src[i : i+3]
+					if (kw == "inf" || kw == "nan") &&
+						(i+3 >= len(src) || !isIdCont(src[i+3])) {
+						if kw == "nan" && neg {
+							return zonBad(lex, "zon_number", src, sI, i+3)
+						}
+						var val float64
+						if kw == "inf" {
+							if neg {
+								val = math.Inf(-1)
+							} else {
+								val = math.Inf(1)
+							}
+						} else {
+							val = math.NaN()
+						}
+						end := i + 3
+						tkn := lex.Token("#NR", jsonic.TinNR, val, src[sI:end])
+						pnt.SI = end
+						pnt.CI += end - sI
+						return tkn
+					}
+				}
+				return nil
+			}
+
+			if !isDigit(src[i]) {
+				return nil
+			}
+
+			num, ok := scanZonNumber(src, i)
+			if !ok {
+				return zonBad(lex, "zon_number", src, sI, num.end)
+			}
+
+			var val any
+			if num.isInt {
+				// Zig: `-0` is an ambiguous integer literal (`-0.0` is fine).
+				if neg && num.big.Sign() == 0 {
+					return zonBad(lex, "zon_number", src, sI, num.end)
+				}
+				signed := new(big.Int).Set(num.big)
+				if neg {
+					signed.Neg(signed)
+				}
+				if f, acc := new(big.Float).SetInt(signed).Float64(); acc == big.Exact &&
+					!math.IsInf(f, 0) {
+					val = f
+				} else {
+					val = signed
+				}
+			} else if neg {
+				val = -num.num
+			} else {
+				val = num.num
+			}
+
+			end := num.end
+			tkn := lex.Token("#NR", jsonic.TinNR, val, src[sI:end])
+			pnt.SI = end
+			pnt.CI += end - sI
+			return tkn
+		}
+	}
+}
+
+type zonNumScan struct {
+	end   int
+	isInt bool
+	big   *big.Int
+	num   float64
+}
+
+// scanZonNumber scans one unsigned Zig numeric literal starting at `start`
+// (a digit). On failure the returned end spans the whole malformed literal.
+func scanZonNumber(src string, start int) (zonNumScan, bool) {
+	i := start
+	base := 10
+	fail := func() (zonNumScan, bool) {
+		return zonNumScan{end: scanNumTokenEnd(src, start)}, false
+	}
+
+	if src[i] == '0' && i+1 < len(src) {
+		switch c1 := src[i+1]; c1 {
+		case 'x':
+			base, i = 16, i+2
+		case 'o':
+			base, i = 8, i+2
+		case 'b':
+			base, i = 2, i+2
+		case 'X', 'O', 'B':
+			return fail() // base prefix must be lowercase
+		default:
+			if c1 == '_' || isDigit(c1) {
+				return fail() // leading zero
+			}
+		}
+	}
+
+	intEnd, intCount, bad := scanDigitRun(src, i, base)
+	if bad {
+		return fail()
+	}
+	intText := strings.ReplaceAll(src[i:intEnd], "_", "")
+	i = intEnd
+
+	isFloat := false
+	fracText := ""
+	if i < len(src) && src[i] == '.' {
+		startsFrac := false
+		if i+1 < len(src) {
+			after := src[i+1]
+			dv := digitVal(after)
+			// A `.` only starts a fraction when a digit of this base (or, for
+			// hex, the `p` exponent) follows; otherwise the number ends here
+			// and the stray `.` is a parse error (`1.`, `0.1.2`).
+			startsFrac = (dv >= 0 && dv < base) ||
+				(base == 16 && (after == 'p' || after == 'P'))
+		}
+		if startsFrac {
+			if base != 10 && base != 16 {
+				return fail() // invalid base for float literal
+			}
+			isFloat = true
+			i++
+			fracEnd, _, fbad := scanDigitRun(src, i, base)
+			if fbad {
+				return fail()
+			}
+			fracText = strings.ReplaceAll(src[i:fracEnd], "_", "")
+			i = fracEnd
+		}
+	}
+
+	expVal := 0
+	hasExp := false
+	expChars := ""
+	if base == 16 {
+		expChars = "pP"
+	} else if base == 10 {
+		expChars = "eE"
+	}
+	if expChars != "" && i < len(src) && strings.IndexByte(expChars, src[i]) >= 0 {
+		hasExp = true
+		isFloat = true
+		i++
+		expSign := 1
+		if i < len(src) && (src[i] == '+' || src[i] == '-') {
+			if src[i] == '-' {
+				expSign = -1
+			}
+			i++
+		}
+		expEnd, expCount, ebad := scanDigitRun(src, i, 10)
+		if ebad || expCount == 0 {
+			return fail()
+		}
+		n, err := strconv.Atoi(strings.ReplaceAll(src[i:expEnd], "_", ""))
+		if err != nil {
+			return fail()
+		}
+		expVal = expSign * n
+		i = expEnd
+	}
+
+	if intCount == 0 && len(fracText) == 0 {
+		return fail()
+	}
+
+	// Anything alphanumeric still attached is a digit invalid for this base.
+	if i < len(src) && isIdCont(src[i]) {
+		return fail()
+	}
+
+	if isFloat {
+		var text string
+		if base == 16 {
+			intPart, fracPart := intText, fracText
+			if intPart == "" {
+				intPart = "0"
+			}
+			if fracPart == "" {
+				fracPart = "0"
+			}
+			text = "0x" + intPart + "." + fracPart + "p" + strconv.Itoa(expVal)
+		} else {
+			intPart := intText
+			if intPart == "" {
+				intPart = "0"
+			}
+			fracPart := fracText
+			if fracPart == "" {
+				fracPart = "0"
+			}
+			text = intPart + "." + fracPart + "e" + strconv.Itoa(expVal)
+			_ = hasExp
+		}
+		f, err := strconv.ParseFloat(text, 64)
+		if err != nil {
+			// Overflow to +/-Inf is what Zig does too; only a genuine syntax
+			// failure is an error here.
+			if ne, ok := err.(*strconv.NumError); !ok || ne.Err != strconv.ErrRange {
+				return fail()
+			}
+		}
+		return zonNumScan{end: i, num: f}, true
+	}
+
+	if intText == "" {
+		intText = "0"
+	}
+	v, ok := new(big.Int).SetString(intText, base)
+	if !ok {
+		return fail()
+	}
+	return zonNumScan{end: i, isInt: true, big: v}, true
+}
+
+// scanDigitRun scans a run of `base` digits with Zig's digit-separator rules:
+// a `_` must sit directly between two digits (no leading, trailing, or
+// repeated `_`). Returns the end index, the digit count, and a bad flag.
+func scanDigitRun(src string, i, base int) (int, int, bool) {
+	start := i
+	count := 0
+	prevDigit := false
+	for ; i < len(src); i++ {
+		ch := src[i]
+		if ch == '_' {
+			if !prevDigit {
+				return i, count, true
+			}
+			prevDigit = false
+			continue
+		}
+		dv := digitVal(ch)
+		if dv >= 0 && dv < base {
+			count++
+			prevDigit = true
+			continue
+		}
+		break
+	}
+	if start < i && !prevDigit {
+		return i, count, true
+	}
+	return i, count, false
+}
+
+// scanNumTokenEnd returns the greedy extent of a malformed numeric token, so
+// the error span covers the whole literal rather than its first character.
+func scanNumTokenEnd(src string, i int) int {
+	for i < len(src) {
+		if isIdCont(src[i]) {
+			i++
+		} else if src[i] == '.' && i+1 < len(src) && isIdCont(src[i+1]) {
+			i++
+		} else {
+			break
+		}
+	}
+	return i
+}
+
+func isDigit(c byte) bool {
+	return c >= '0' && c <= '9'
+}
+
+func digitVal(c byte) int {
+	switch {
+	case c >= '0' && c <= '9':
+		return int(c - '0')
+	case c >= 'a' && c <= 'f':
+		return int(c-'a') + 10
+	case c >= 'A' && c <= 'F':
+		return int(c-'A') + 10
+	}
+	return -1
 }
 
 func isHex(s string) bool {

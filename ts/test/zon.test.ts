@@ -160,4 +160,62 @@ describe('zon', () => {
       kind: { $enum: 'red' },
     })
   })
+
+  // The cases below cannot live in `test/spec/*.tsv`: the shared fixtures
+  // compare after a JSON round-trip, and bigint / Infinity / NaN / -0 have no
+  // JSON spelling. See ../../test/AGENTS.md.
+
+  test('integers beyond double precision keep their exact value', () => {
+    // 2^65 - 1 is not representable as an IEEE-754 double, so the plugin
+    // returns a bigint rather than silently rounding (zig 0.16.0 reports the
+    // same exact value).
+    assert.strictEqual(parse('36893488147419103231'), 36893488147419103231n)
+    assert.strictEqual(parse('368934_881_474191032_31'), 36893488147419103231n)
+    assert.strictEqual(parse('0x1ffffffffffffffff'), 36893488147419103231n)
+    assert.strictEqual(parse('0o3777777777777777777777'), 36893488147419103231n)
+    assert.strictEqual(
+      parse('0b' + '1'.repeat(65)), 36893488147419103231n)
+    assert.strictEqual(parse('-36893488147419103231'), -36893488147419103231n)
+    assert.strictEqual(parse('9007199254740993'), 9007199254740993n)
+  })
+
+  test('integers that fit a double exactly stay numbers', () => {
+    assert.strictEqual(parse('9007199254740992'), 9007199254740992)
+    assert.strictEqual(parse('18446744073709551616'), 18446744073709551616)
+    assert.strictEqual(parse('-36893488147419103232'), -36893488147419103232)
+    assert.strictEqual(typeof parse('18446744073709551616'), 'number')
+  })
+
+  test('inf and nan literals', () => {
+    assert.strictEqual(parse('inf'), Infinity)
+    assert.strictEqual(parse('-inf'), -Infinity)
+    assert.strictEqual(parse('- inf'), -Infinity)
+    assert.ok(Number.isNaN(parse('nan')))
+    assert.deepStrictEqual(parse('.{ nan, inf, -inf }').map(Number.isFinite),
+      [false, false, false])
+    // `-nan` is not a Zig numeric literal.
+    assert.throws(() => parse('-nan'))
+  })
+
+  test('negative zero', () => {
+    assert.ok(Object.is(parse('-0.0'), -0))
+    assert.ok(Object.is(parse('-0e0'), -0))
+    // But an integer `-0` is ambiguous in Zig and rejected.
+    assert.throws(() => parse('-0'))
+  })
+
+  test('duplicate struct field names are rejected', () => {
+    assert.throws(() => parse('.{ .a = 1, .a = 2 }'), /duplicate struct field/)
+    assert.throws(() => parse('.{ .@"a" = 1, .a = 2 }'), /duplicate struct field/)
+    // Sibling structs may of course repeat a name.
+    assert.deepStrictEqual(parse('.{ .x = .{ .a = 1 }, .y = .{ .a = 2 } }'),
+      { x: { a: 1 }, y: { a: 2 } })
+  })
+
+  test('doc comments are rejected, ordinary comments are not', () => {
+    assert.throws(() => parse('//! doc\n1'), /doc comments/)
+    assert.throws(() => parse('/// doc\n1'), /doc comments/)
+    assert.strictEqual(parse('//// four\n1'), 1)
+    assert.strictEqual(parse('// two\n1'), 1)
+  })
 })

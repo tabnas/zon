@@ -59,6 +59,29 @@ result, _ := tabnaszon.Parse(`.{ .name = "Alice", .age = 30 }`)
 // map[string]any{"name": "Alice", "age": float64(30)}
 ```
 
+## Conformance
+
+`@tabnas/zon` accepts exactly the documents **ziglang/zig 0.16.0** accepts,
+and produces the same value for each. The reference implementation is the
+judge, not this repo: `scripts/fetch-zigzon.sh` downloads a pinned zig 0.16.0,
+builds a small oracle around the compiler's own `std.zig.Ast` + `std.zig.ZonGen`,
+and has it rule on every ZON document in the zig tree.
+
+| Corpus | Documents | Accepted correctly | Rejected correctly |
+|---|---|---|---|
+| Every `.zon` file in the zig tree, plus every snippet in `lib/std/zon/parse.zig` | 222 | 178 / 178 | 44 / 44 |
+| Leniency probes (`test/strictness/inputs.txt`), judged by the same oracle | 117 | 45 / 45 | 72 / 72 |
+
+Identical in both runtimes. Two documented deviations, both about
+representing a value that Zig resolves against a target type:
+
+- an integer literal too large for an exact IEEE-754 double is returned as a
+  `bigint` (TypeScript) / `*big.Int` (Go) rather than silently rounded;
+- `.{}` parses as the empty **list**, since an empty anonymous literal is both
+  an empty struct and an empty tuple until a type says otherwise.
+
+See [`AGENTS.md`](AGENTS.md#conformance-claim) for the full details.
+
 ## Documentation
 
 Full documentation follows the [Diátaxis](https://diataxis.fr)
