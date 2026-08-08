@@ -117,20 +117,23 @@ field names, and `//!` / `///` doc comments.
 ## The tabnas engine dependency
 
 This repo sits **above jsonic** in the stack, not directly above the bare
-engine. The packages are **published on npm** (`@tabnas/* @ 0.2.0`); the
+engine. The packages are **published on npm** (`@tabnas/*`); the
 `file:` paths in `package.json` are the monorepo dev layout, not a
 requirement.
 
 - TypeScript: `@tabnas/jsonic` and `@tabnas/parser` are both
-  `peerDependencies` (`^0.2.0`) in `ts/package.json`, each mirrored as a
-  `file:../../<dep>/ts` devDependency for monorepo builds. `@tabnas/debug`
+  `peerDependencies` in `ts/package.json` (that file is the authority on
+  the accepted ranges), each mirrored as a `file:../../<dep>/ts`
+  devDependency for monorepo builds. `@tabnas/debug`
   and `@tabnas/railroad` are **dev-only** `file:` devDependencies — debug
   for the `debug-model.test.ts` composition test, railroad to regenerate
-  `ts/doc/grammar.{svg,txt}`. `engines.node` is `">=24"` (builds/tests
-  also run on Node 22 with harmless `EBADENGINE` warnings).
+  `ts/doc/grammar.{svg,txt}`. The supported Node floor is `engines.node`
+  in the same file (builds/tests also run on the previous Node LTS with
+  harmless `EBADENGINE` warnings).
 - Go: `go/go.mod` `require`s the published modules directly
-  (`github.com/tabnas/{jsonic,json,parser}/go v0.2.0`) with **no
-  `replace`** — `go build`/`go test` resolve them from the module proxy.
+  (`github.com/tabnas/{jsonic,json,parser}/go`, at the versions pinned in
+  that file) with **no `replace`** — `go build`/`go test` resolve them
+  from the module proxy.
 
 **Two dev models:**
 - *Monorepo:* clone `jsonic` and `parser` (plus `json`, `debug`,
