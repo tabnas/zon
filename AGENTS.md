@@ -102,7 +102,7 @@ field names, and `//!` / `///` doc comments.
 
 | Path | What it is |
 |---|---|
-| [`ts/`](ts/) | **Canonical** TypeScript implementation — the `@tabnas/zon` package (currently `0.2.0`). Plugin in `src/zon.ts`. Peer-depends on `@tabnas/jsonic` and `@tabnas/parser`. No CLI. |
+| [`ts/`](ts/) | **Canonical** TypeScript implementation — the `@tabnas/zon` package. Plugin in `src/zon.ts`. Peer-depends on `@tabnas/jsonic` and `@tabnas/parser`. No CLI. |
 | [`go/`](go/) | Go port — `github.com/tabnas/zon/go` (`const Version` in `go/zon.go`). Plugin `Zon` plus `MakeJsonic` / `Parse` helpers. Requires the published `github.com/tabnas/jsonic/go` (no `replace` directive). |
 | [`ts/zon-grammar.jsonic`](ts/zon-grammar.jsonic) | **Single source of truth** for the grammar-rule alts (the `val`/`list`/`elem`/`pair` overrides), authored in jsonic syntax. |
 | [`ts/embed-grammar.js`](ts/embed-grammar.js) | Embeds `zon-grammar.jsonic` into **both** `src/zon.ts` and `go/zon.go` (between `BEGIN/END EMBEDDED` markers) as a `grammarText` string literal. Runs as the first half of `npm run build`. |
