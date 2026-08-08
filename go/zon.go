@@ -25,7 +25,10 @@ import (
 	jsonic "github.com/tabnas/jsonic/go"
 )
 
-const Version = "0.4.3"
+// VERSION is this module's version. It MUST equal ts/package.json
+// "version": the release orchestrator rewrites both, and
+// TestVersionMatchesPackageJSON fails the build if they drift.
+const VERSION = "0.4.3"
 
 // --- BEGIN EMBEDDED zon-grammar.jsonic ---
 const grammarText = `

@@ -25,6 +25,7 @@ npm install @tabnas/parser @tabnas/jsonic @tabnas/zon
 | Export | Kind | Description |
 |---|---|---|
 | `Zon` | `Plugin` | The plugin function. Register with `engine.use(Zon, options)`. |
+| `VERSION` | `string` | This package's version, always equal to `package.json` "version". |
 | `ZonOptions` | type | The options object shape (see [Options](#options)). |
 
 `Zon.defaults` (a `ZonOptions`) holds the merged default options:

@@ -21,7 +21,7 @@ import tabnaszon "github.com/tabnas/zon/go"
 | Module | `github.com/tabnas/zon/go` |
 | Package | `tabnaszon` |
 | Engine | `github.com/tabnas/jsonic/go` (pulled in transitively) |
-| `Version` | exported `const` string of the module version |
+| `VERSION` | exported `const` string of the module version |
 
 ## Public API
 
