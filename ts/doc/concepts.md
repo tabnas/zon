@@ -56,28 +56,36 @@ applied together through one `GrammarSpec`:
    values) so they reliably claim their input:
    - `.{` peeks ahead and emits `#OB` (struct) when followed by
      `<ws>.ident<ws>=`, or `#OS` (tuple) otherwise.
-   - `.identifier` emits `#TX` whose `val` is the identifier with the
-     dot stripped, and whose `use.zonEnum` flag marks it for optional
-     enum-tag wrapping.
+   - `.identifier`, and `.@"any name"`, emit `#TX` whose `val` is the
+     name with the dot stripped, and whose `use.zonEnum` flag marks it
+     for optional enum-tag wrapping.
    - `\\`-prefixed lines emit one `#ST` string token with the joined
-     content.
+     content. Zig lexes the whole run as one token, so blank lines
+     inside it continue the literal.
    - char literals (`'x'`, `'\n'`, `'\xNN'`, `'\u{...}'`) emit a `#NR`
      number token whose value is a one-char string or the code point,
      per `charAsNumber`.
+   - numeric literals emit `#NR` from a matcher that reproduces Zig's
+     literal grammar exactly — jsonic's own number lexer is switched
+     off, because relaxed-JSON numbers (`+1`, `.5`, `0123`, `1__0`) are
+     not ZON numbers.
+   - `//!` and `///` fail the lex: they are Zig doc comments, which ZON
+     rejects.
 
 2. **Token remapping.** `#CL` is rebound from `:` to `=`; the default
    char mappings for `#OB`, `#OS`, and `#CS` are dropped to `null`, so
    a stray `{`, `[`, or `]` produces a syntax error instead of silently
    opening a structure. The default jsonic text matcher is turned off,
-   since identifiers only ever appear as `.ident` and are owned by the
-   custom matcher.
+   since identifiers only ever appear as `.ident` / `.@"..."` and are
+   owned by the custom matcher.
 
 3. **Key-set restriction.** The `KEY` token set is narrowed to `#TX`
    alone, so only an identifier (not a number or a quoted string) can
    sit on the left of `=`.
 
 4. **Grammar overlay.** A few alternates are prepended to `val`,
-   `list`, `elem`, and `pair`. They swap the list terminator from the
+   `list`, `elem`, and `pair`, plus a before-close guard on `pair` that
+   rejects a repeated field name (Zig does too). They swap the list terminator from the
    default `#CS` to `#CB`, seed the list node with `@array$`, and
    accept a trailing comma before `}`. This is the only part written in
    grammar text; everything else is options.

@@ -57,13 +57,21 @@ applied together through one `GrammarSpec`:
    values so they run ahead of the fixed-token matcher:
    - `.{` peeks ahead and emits `#OB` (struct) when followed by
      `<ws>.ident<ws>=`, or `#OS` (tuple) otherwise.
-   - `.identifier` emits `#TX` whose `Val` is the identifier with the
-     dot stripped, and whose `Use["zonEnum"]` flag marks it for
-     optional enum-tag wrapping.
+   - `.identifier`, and `.@"any name"`, emit `#TX` whose `Val` is the
+     name with the dot stripped, and whose `Use["zonEnum"]` flag marks
+     it for optional enum-tag wrapping.
    - `\\`-prefixed lines emit one `#ST` string token with the joined
-     content.
+     content. Zig lexes the whole run as one token, so blank lines
+     inside it continue the literal.
    - char literals emit a `#NR` number token whose value is a one-char
      string or the code point (as `float64`), per `CharAsNumber`.
+   - numeric literals emit `#NR` from a matcher that reproduces Zig's
+     literal grammar exactly — jsonic's own number lexer is switched
+     off, because relaxed-JSON numbers (`+1`, `.5`, `0123`, `1__0`) are
+     not ZON numbers. An integer too large for an exact `float64`
+     becomes a `*big.Int`.
+   - `//!` and `///` fail the lex: they are Zig doc comments, which ZON
+     rejects.
 
 2. **Token remapping.** `#CL` is rebound from `:` to `=`; the default
    char mappings for `#OB`, `#OS`, and `#CS` are dropped to `nil`, so a
@@ -74,7 +82,8 @@ applied together through one `GrammarSpec`:
    alone, so only an identifier can sit on the left of `=`.
 
 4. **Grammar overlay.** A few alternates are prepended to `val`,
-   `list`, `elem`, and `pair`. They swap the list terminator from the
+   `list`, `elem`, and `pair`, plus a before-close guard on `pair` that
+   rejects a repeated field name (Zig does too). They swap the list terminator from the
    default `#CS` to `#CB`, seed the list node with `@array$`, and
    accept a trailing comma before `}`.
 

@@ -3,7 +3,10 @@
 package tabnaszon
 
 import (
+	"math"
+	"math/big"
 	"reflect"
+	"strings"
 	"testing"
 
 	jsonic "github.com/tabnas/jsonic/go"
@@ -230,5 +233,128 @@ func TestSyntaxError(t *testing.T) {
 	// `{` without `.` is not valid ZON.
 	if err := parseErr(t, "{ a = 1 }"); err == nil {
 		t.Error("expected error for bare { but got none")
+	}
+}
+
+// The cases below cannot live in `test/spec/*.tsv`: the shared fixtures
+// compare after a JSON round-trip, and big.Int / Inf / NaN / -0 have no JSON
+// spelling. Mirrors the equivalent block in ts/test/zon.test.ts.
+
+func bigOf(t *testing.T, s string) *big.Int {
+	t.Helper()
+	v, ok := new(big.Int).SetString(s, 10)
+	if !ok {
+		t.Fatalf("bad big literal %q", s)
+	}
+	return v
+}
+
+func TestBigIntegersKeepExactValue(t *testing.T) {
+	// 2^65 - 1 is not representable as an IEEE-754 double, so the plugin
+	// returns a *big.Int rather than silently rounding (zig 0.16.0 reports
+	// the same exact value).
+	want := bigOf(t, "36893488147419103231")
+	for _, src := range []string{
+		"36893488147419103231",
+		"368934_881_474191032_31",
+		"0x1ffffffffffffffff",
+		"0o3777777777777777777777",
+		"0b" + strings.Repeat("1", 65),
+	} {
+		got, ok := parse(t, src).(*big.Int)
+		if !ok || got.Cmp(want) != 0 {
+			t.Errorf("parse(%q) = %v, want *big.Int %v", src, parse(t, src), want)
+		}
+	}
+	neg := bigOf(t, "-36893488147419103231")
+	if got, ok := parse(t, "-36893488147419103231").(*big.Int); !ok || got.Cmp(neg) != 0 {
+		t.Errorf("parse(-2^65+1) = %v, want %v", parse(t, "-36893488147419103231"), neg)
+	}
+	if got, ok := parse(t, "9007199254740993").(*big.Int); !ok ||
+		got.Cmp(bigOf(t, "9007199254740993")) != 0 {
+		t.Errorf("2^53+1 should be exact, got %v", parse(t, "9007199254740993"))
+	}
+}
+
+func TestIntegersThatFitADoubleStayFloat64(t *testing.T) {
+	cases := map[string]float64{
+		"9007199254740992":      9007199254740992,
+		"18446744073709551616":  18446744073709551616,
+		"-36893488147419103232": -36893488147419103232,
+	}
+	for src, want := range cases {
+		got, ok := parse(t, src).(float64)
+		if !ok || got != want {
+			t.Errorf("parse(%q) = %#v, want float64 %v", src, parse(t, src), want)
+		}
+	}
+}
+
+func TestInfAndNanLiterals(t *testing.T) {
+	if got := parse(t, "inf").(float64); !math.IsInf(got, 1) {
+		t.Errorf("inf = %v", got)
+	}
+	if got := parse(t, "-inf").(float64); !math.IsInf(got, -1) {
+		t.Errorf("-inf = %v", got)
+	}
+	if got := parse(t, "- inf").(float64); !math.IsInf(got, -1) {
+		t.Errorf("- inf = %v", got)
+	}
+	if got := parse(t, "nan").(float64); !math.IsNaN(got) {
+		t.Errorf("nan = %v", got)
+	}
+	// `-nan` is not a Zig numeric literal.
+	if err := parseErr(t, "-nan"); err == nil {
+		t.Error("expected -nan to be rejected")
+	}
+}
+
+func TestNegativeZero(t *testing.T) {
+	for _, src := range []string{"-0.0", "-0e0"} {
+		got := parse(t, src).(float64)
+		if got != 0 || !math.Signbit(got) {
+			t.Errorf("parse(%q) = %v, want -0", src, got)
+		}
+	}
+	// But an integer `-0` is ambiguous in Zig and rejected.
+	if err := parseErr(t, "-0"); err == nil {
+		t.Error("expected -0 to be rejected")
+	}
+}
+
+func TestDuplicateStructFieldRejected(t *testing.T) {
+	for _, src := range []string{`.{ .a = 1, .a = 2 }`, `.{ .@"a" = 1, .a = 2 }`} {
+		err := parseErr(t, src)
+		if err == nil {
+			t.Fatalf("expected %q to be rejected", src)
+		}
+		if !strings.Contains(err.Error(), "duplicate struct field") {
+			t.Errorf("%q: unexpected message %q", src, err.Error())
+		}
+	}
+	// Sibling structs may of course repeat a name.
+	got := parse(t, `.{ .x = .{ .a = 1 }, .y = .{ .a = 2 } }`)
+	want := map[string]any{
+		"x": map[string]any{"a": 1.0},
+		"y": map[string]any{"a": 2.0},
+	}
+	assertEqual(t, "sibling-dup", got, want)
+}
+
+func TestDocCommentsRejected(t *testing.T) {
+	for _, src := range []string{"//! doc\n1", "/// doc\n1"} {
+		err := parseErr(t, src)
+		if err == nil {
+			t.Fatalf("expected %q to be rejected", src)
+		}
+		if !strings.Contains(err.Error(), "doc comments") {
+			t.Errorf("%q: unexpected message %q", src, err.Error())
+		}
+	}
+	// Four or more slashes is an ordinary line comment again.
+	for _, src := range []string{"//// four\n1", "// two\n1"} {
+		if got := parse(t, src); got != 1.0 {
+			t.Errorf("parse(%q) = %v, want 1", src, got)
+		}
 	}
 }

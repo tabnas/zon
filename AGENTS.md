@@ -33,19 +33,70 @@ and then reshapes it into ZON. Install it on a jsonic-enabled engine —
 1. **Disables jsonic extensions** it doesn't want (`rule.exclude:
    'jsonic,imp'` removes implicit maps/lists, top-level commas, path
    dives) and remaps fixed tokens — bare `{` `[` `]` are nulled out and
-   `#CL` (the key/value separator) becomes `=` instead of `:`.
-2. **Adds three custom lex matchers** (`zonDot`, `zonMultiString`,
-   `zonChar`) for Zig syntax the jsonic lexer can't express.
+   `#CL` (the key/value separator) becomes `=` instead of `:`. It also
+   turns jsonic's **number lexer off** (`number.lex: false`), because
+   relaxed-JSON numbers are not ZON numbers.
+2. **Adds five custom lex matchers** (`zonDot`, `zonMultiString`,
+   `zonChar`, `zonNumber`, `zonDocComment`) for Zig syntax the jsonic
+   lexer can't express — or, for the last two, for syntax it would
+   wrongly *accept*.
 3. **Adds four grammar-rule alts** (`val`/`list`/`elem`/`pair`) so a
-   single `}` (`#CB`) closes both struct and tuple literals.
+   single `}` (`#CB`) closes both struct and tuple literals, plus a
+   `@pair-bc/prepend` guard that rejects duplicate field names.
 
 The signature ZON trick: `.{` is **disambiguated at lex time** by the
 `zonDot` matcher. It peeks ahead — `.{ .ident =` → emits `#OB` (struct /
-map); anything else → `#OS` (tuple / list). A bare `.identifier` emits
-`#TX` (leading dot stripped), valid as both a `KEY` (before `=`) and a
-`VAL` (an enum literal). Two options shape values: `charAsNumber`
-(parse `'x'` char literals as code points vs one-char strings) and
-`enumTag` (wrap enum-literal values `.foo` in `{ [enumTag]: 'foo' }`).
+map); anything else → `#OS` (tuple / list). A bare `.identifier` (or
+`.@"any name"`) emits `#TX` (leading dot stripped), valid as both a `KEY`
+(before `=`) and a `VAL` (an enum literal). Two options shape values:
+`charAsNumber` (parse `'x'` char literals as code points vs one-char
+strings) and `enumTag` (wrap enum-literal values `.foo` in
+`{ [enumTag]: 'foo' }`).
+
+## Conformance claim
+
+**`@tabnas/zon` accepts exactly the documents `ziglang/zig` 0.16.0
+accepts, and produces the same value for each.** That is not a slogan:
+the reference implementation itself is the judge. `std.zig.Ast` (in
+`.zon` mode) plus `std.zig.ZonGen`, from a pinned zig 0.16.0, decide
+every verdict and every value in the two corpora
+[`scripts/fetch-zigzon.sh`](scripts/fetch-zigzon.sh) generates.
+
+**Measured (zig 0.16.0, commit `24fdd5b7a4c1`, both runtimes identical):**
+
+| Corpus | Documents | Accepted correctly | Rejected correctly |
+|---|---|---|---|
+| `test/zigzon/cases.json` — every `.zon` file in the zig tree plus every ZON snippet in `lib/std/zon/parse.zig` | 222 | **178 / 178** (values compared, not just "it parsed") | **44 / 44** |
+| `test/strictness/cases.json` — locally authored leniency probes, judged by the same oracle | 117 | **45 / 45** | **72 / 72** |
+
+The corpora are **not bundled** — generating them downloads a pinned zig
+toolchain and source tarball (~80 MB, cached in `test/zigzon/vendor/`,
+git-ignored). The suites that read them (`ts/test/zigzon.test.ts`,
+`go/zigzon_test.go`) skip when they are absent, the same opt-in
+convention `@tabnas/toml` and `@tabnas/xml` use. Every behaviour they
+pin that is expressible as `input → JSON` is **also** committed as a
+shared fixture in [`test/spec/`](test/spec/) (notably
+[`strict.tsv`](test/spec/strict.tsv)), so CI gates the same rules
+without the download.
+
+### The documented deviations
+
+Two, both about how a schema-less parser can represent a value that Zig
+resolves against a target type:
+
+1. **Numbers are IEEE-754 doubles, except integers that would lose
+   precision.** An integer literal whose exact value is not representable
+   as a double is returned as a **`bigint`** (TS) / **`*big.Int`** (Go)
+   rather than silently rounded. Floats are always doubles: `f128`
+   literals are narrowed, as they are in any JSON-shaped parser.
+2. **`.{}` parses as the empty LIST**, because at the syntax level an
+   empty anonymous literal is both an empty struct and an empty tuple and
+   only a target type can tell them apart.
+
+Everything else the reference rejects, this parser rejects — including
+the cases jsonic's relaxed lexer would otherwise wave through
+(`+1`, `.5`, `5.`, `0123`, `1__0`, `0x_2A`, `0X2A`), duplicate struct
+field names, and `//!` / `///` doc comments.
 
 ## Repository map
 
@@ -55,8 +106,11 @@ map); anything else → `#OS` (tuple / list). A bare `.identifier` emits
 | [`go/`](go/) | Go port — `github.com/tabnas/zon/go` (`const Version` in `go/zon.go`). Plugin `Zon` plus `MakeJsonic` / `Parse` helpers. Requires the published `github.com/tabnas/jsonic/go` (no `replace` directive). |
 | [`ts/zon-grammar.jsonic`](ts/zon-grammar.jsonic) | **Single source of truth** for the grammar-rule alts (the `val`/`list`/`elem`/`pair` overrides), authored in jsonic syntax. |
 | [`ts/embed-grammar.js`](ts/embed-grammar.js) | Embeds `zon-grammar.jsonic` into **both** `src/zon.ts` and `go/zon.go` (between `BEGIN/END EMBEDDED` markers) as a `grammarText` string literal. Runs as the first half of `npm run build`. |
-| [`ts/test/`](ts/test/) | TS tests (`.ts`, compiled to `dist-test/`): `zon.test.ts` (parse cases), `debug-model.test.ts` (the `@tabnas/debug` composition / model introspection), `doc-examples.test.ts` (runs `// =>` assertions in README/doc fences). |
-| [`go/zon_test.go`](go/zon_test.go) | Go test suite — the same parse cases as `zon.test.ts`, hand-mirrored. |
+| [`test/spec/`](test/spec/) | Shared `.tsv` conformance fixtures. **Both** runners auto-discover and run every file here, so adding one covers TypeScript and Go together. See [`test/AGENTS.md`](test/AGENTS.md). |
+| [`ts/test/`](ts/test/) | TS tests (`.ts`, compiled to `dist-test/`): `zon.test.ts` (parse cases), `parity.test.ts` (the shared `test/spec/*.tsv` fixtures), `zigzon.test.ts` (the zig reference corpora), `debug-model.test.ts` (the `@tabnas/debug` composition / model introspection), `doc-examples.test.ts` (runs `// =>` assertions in README/doc fences). |
+| [`go/zon_test.go`](go/zon_test.go), [`go/parity_test.go`](go/parity_test.go), [`go/zigzon_test.go`](go/zigzon_test.go) | Go test suite — the same parse cases, the same `.tsv` fixtures, and the same zig reference corpora. |
+| [`scripts/fetch-zigzon.sh`](scripts/fetch-zigzon.sh) | Opt-in generator for the zig reference corpora: downloads a pinned zig 0.16.0 toolchain + source, builds [`test/zigzon/tools/oracle.zig`](test/zigzon/tools/oracle.zig) (a batch judge over `std.zig.Ast` + `std.zig.ZonGen`), harvests every ZON document in the tree ([`harvest.py`](test/zigzon/tools/harvest.py)) and records its verdict ([`judge.py`](test/zigzon/tools/judge.py)). |
+| [`test/strictness/inputs.txt`](test/strictness/inputs.txt) | The locally authored leniency probes. This file decides the **questions**; the oracle decides every **answer**. |
 | [`ts/doc/grammar.svg`](ts/doc/grammar.svg), [`ts/doc/grammar.txt`](ts/doc/grammar.txt) | Railroad / ASCII diagram of the live grammar, generated by `@tabnas/railroad`. |
 | [`ts/doc/`](ts/doc/), [`go/doc/`](go/doc/) | Per-runtime 4-quadrant Diataxis docs: `tutorial.md`, `guide.md`, `reference.md`, `concepts.md` (the Go `concepts.md` also covers differences from TS). |
 
@@ -106,14 +160,13 @@ requirement.
    [`test/AGENTS.md`](test/AGENTS.md)). Add a new parse case there; the
    in-language suites keep only what a fixture cannot express.
 4. The jsonic option overrides (`rule.exclude`, `fixed.token`,
-   `tokenSet.KEY`, `string`, `number`, `comment`, `value`, `text.lex`,
-   `lex.match`) and the three lex matchers exist in **both** runtimes and
-   must stay in step — they all live on the grammar object so the plugin
-   applies them atomically alongside its rule alts. Note Go's
-   `number`/`comment` blocks carry extra base/sep settings (`Hex`/`Oct`/
-   `Bin`/`Sep`, hash/multi comment defs) the TS side leaves to jsonic
-   defaults; keep observable behavior aligned even where the option
-   surface differs slightly.
+   `tokenSet.KEY`, `string`, `number`, `error`, `comment`, `value`,
+   `text.lex`, `lex.match`) and the five lex matchers exist in **both**
+   runtimes and must stay in step — they all live on the grammar object
+   so the plugin applies them atomically alongside its rule alts. Note
+   Go's `comment` block carries extra defs (hash/multi) the TS side
+   leaves to jsonic defaults; keep observable behavior aligned even where
+   the option surface differs slightly.
 5. The `Defaults` (`charAsNumber: false`, `enumTag` empty) and `Version`
    const in `go/zon.go` mirror the TS `Zon.defaults` and the
    `package.json` version; `Version` is bumped by `make publish-go`.
@@ -134,7 +187,28 @@ requirement.
   is what lets one `}` terminate both `.{ ... }` struct and tuple forms.
   The empty `.{}` is steered to an empty **list**.
 - **The default jsonic text matcher is disabled** (`text.lex: false`):
-  identifiers only ever appear as `.ident` and are produced by `zonDot`.
+  identifiers only ever appear as `.ident` / `.@"..."` and are produced by
+  `zonDot`. `true`/`false`/`null` still lex, because the text matcher
+  matches `value.def` entries even when text lexing is off.
+- **`zonNumber` owns every numeric token, including the leading `-` and
+  the `inf`/`nan` keywords.** jsonic's number lexer is switched off, so
+  nothing else will produce an `#NR`. It reproduces Zig's literal grammar
+  (base prefixes must be lowercase, `_` must sit between digits, no
+  leading zero, no `+`, hex floats via `p`), and returns a
+  `bigint`/`*big.Int` when a double would lose the exact integer value.
+- **`zonDocComment` runs at order 1.4e5, ahead of jsonic's comment
+  matcher (6e6).** It only ever *fails* the lex, on `//!` and `///`;
+  `////` and plain `//` fall through to the comment matcher.
+- **Duplicate field names are caught in `@pair-bc/prepend`,** which must
+  run before jsonic's own `@pair-bc` (that one performs the assignment,
+  so by `@pair-ac` the collision is gone). `/prepend` is available here
+  precisely because jsonic declares a *plain* `@pair-bc`; contrast
+  `@val-bc`, which it takes with `/replace`. Go state actions cannot
+  return an error token, so the Go side signals via `ctx.ParseErr`.
+- **Whitespace and comments may sit between `.` and what follows**
+  (`. foo`, `. {}`), because Zig's tokenizer emits them as separate
+  tokens. `skipInsigPos` tracks rows/columns across that gap so error
+  positions stay honest.
 - The Go plugin guards against re-invocation with a `zon-init`
   decoration (jsonic `SetOptions` re-applies plugins); don't remove it.
 
@@ -158,7 +232,15 @@ Go (from `go/`):
 
 ```bash
 go build ./...
-go test -v ./...       # plugin parse cases (mirrors zon.test.ts)
+go test -v ./...       # plugin parse cases + test/spec fixtures
+                       # (zig reference corpora skipped if not generated)
+```
+
+The zig reference corpora are opt-in, from the repo root:
+
+```bash
+bash scripts/fetch-zigzon.sh   # ~80MB download on first run, then cached
+make test                      # the zigzon suites now run in both runtimes
 ```
 
 The repo-root [`Makefile`](Makefile) (adapted from voxgig/util) wraps
