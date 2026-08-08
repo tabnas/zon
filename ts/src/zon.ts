@@ -811,5 +811,10 @@ Zon.defaults = {
   enumTag: null,
 } as ZonOptions
 
-export { Zon }
+export { Zon, VERSION }
 export type { ZonOptions }
+
+// VERSION is this package's version. It MUST equal package.json "version":
+// the release orchestrator rewrites both, and the version test fails the
+// build if they drift. Mirrors `const VERSION` in go/zon.go.
+const VERSION = '0.4.3'
