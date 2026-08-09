@@ -20,7 +20,7 @@ ziglang/zig 0.16.0 release by `scripts/fetch-zigzon.sh`.
   the platform one: a host with no pinned zig oracle toolchain
   (anything but linux/macos on x86_64/aarch64) reports one explicit,
   platform-named skip. Never widen that carve-out to cover a missing file.
-- **The census is pinned** — 178 valid / 44 invalid in `zigzon`, 45 / 72 in
+- **The census is pinned** — 184 valid / 44 invalid in `zigzon`, 45 / 72 in
   `strictness`. If it fails, find out what changed in the generator; do not
   edit the number to match.
 - **Every download is SHA-256 pinned.** A mismatch is a hard failure, never

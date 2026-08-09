@@ -166,8 +166,16 @@ fi
 echo "fetch-zigzon: toolchain $HAVE_VERSION"
 
 # --- 2. the source tree (only the parts that hold ZON) ---------------------
+# The extracted tree is stamped with a hash of THIS SCRIPT. A plain "already
+# extracted" marker made a stale tree survive a change to the member patterns
+# below, silently, forever: a working copy kept harvesting the OLD set of
+# documents while a fresh checkout harvested the new one, and the difference
+# only showed up as a corpus census mismatch in CI. Re-extract whenever the
+# recipe changes.
 SRC_TAR="$VENDOR/zig-$ZIG_VERSION.tar.xz"
-if [ ! -f "$SRC_DIR/.fetched" ]; then
+SRC_STAMP="$SRC_DIR/.fetched"
+WANT_STAMP="$(sha256_of "${BASH_SOURCE[0]}")"
+if [ ! -f "$SRC_STAMP" ] || [ "$(cat "$SRC_STAMP")" != "$WANT_STAMP" ]; then
   fetch "https://ziglang.org/download/$ZIG_VERSION/zig-$ZIG_VERSION.tar.xz" \
     "$SRC_TAR" "$ZIG_SRC_SHA256"
   rm -rf "$SRC_DIR"
@@ -182,7 +190,7 @@ if [ ! -f "$SRC_DIR/.fetched" ]; then
     '*/src/codegen/*' \
     '*/test/behavior/zon/*' \
     '*/test/cases/compile_errors/zon/*'
-  touch "$SRC_DIR/.fetched"
+  printf '%s' "$WANT_STAMP" > "$SRC_STAMP"
 fi
 
 # --- 3. the oracle ---------------------------------------------------------

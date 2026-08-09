@@ -181,7 +181,7 @@ function runCorpus(title: string, census: Census, ...path: string[]) {
 
 runCorpus(
   'zigzon (ziglang/zig 0.16.0 reference corpus)',
-  { valid: 178, invalid: 44 },
+  { valid: 184, invalid: 44 },
   'test', 'zigzon', 'cases.json',
 )
 runCorpus(

@@ -66,7 +66,7 @@ every verdict and every value in the two corpora
 
 | Corpus | Documents | Accepted correctly | Rejected correctly |
 |---|---|---|---|
-| `test/zigzon/cases.json` — every `.zon` file in the zig tree plus every ZON snippet in `lib/std/zon/parse.zig` | 222 | **178 / 178** (values compared, not just "it parsed") | **44 / 44** |
+| `test/zigzon/cases.json` — every `.zon` file in the zig tree plus every ZON snippet in `lib/std/zon/parse.zig` | 228 | **184 / 184** (values compared, not just "it parsed") | **44 / 44** |
 | `test/strictness/cases.json` — locally authored leniency probes, judged by the same oracle | 117 | **45 / 45** | **72 / 72** |
 
 The corpora are **not bundled** — generating them downloads a pinned zig
@@ -83,7 +83,7 @@ everywhere `npm test` / `go test ./...` runs, CI included.
 If a corpus is still missing after that, the suites **FAIL** with
 instructions — they never skip. A conformance suite that quietly does not
 run reports a green tick while measuring nothing, which is worse than no
-suite. Both runners also pin the exact corpus census (178/44 and 45/72),
+suite. Both runners also pin the exact corpus census (184/44 and 45/72),
 so narrowing a corpus goes red instead of inflating the pass rate.
 
 The single exception is a host `scripts/fetch-zigzon.sh` has no pinned zig

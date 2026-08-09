@@ -257,7 +257,7 @@ func runZigCorpus(t *testing.T, path string, wantValid, wantInvalid int) {
 // Census re-measured 2026-08-09 against zig 0.16.0; the TS runner pins the
 // same numbers.
 func TestZigZon(t *testing.T) {
-	runZigCorpus(t, zigZonCorpus, 178, 44)
+	runZigCorpus(t, zigZonCorpus, 184, 44)
 }
 
 // TestZigStrictness runs the leniency probes: inputs designed to catch
