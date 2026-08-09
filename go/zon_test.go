@@ -12,12 +12,27 @@ import (
 	jsonic "github.com/tabnas/jsonic/go"
 )
 
+// mustZon builds a jsonic instance with the Zon plugin installed, failing the
+// test if the plugin does not install.
+//
+// UseDefaults returns an error and both helpers below used to DISCARD it. That
+// hid a whole class of failure: with the plugin not installed, `j` is left as
+// bare jsonic, and bare jsonic already parses `42`, `3.14`, `true`, `null` and
+// `"hello"` — so a chunk of this suite would still pass while exercising none
+// of this plugin's behaviour.
+func mustZon(t *testing.T, opts ...map[string]any) *jsonic.Jsonic {
+	t.Helper()
+	j := jsonic.Make()
+	if err := j.UseDefaults(Zon, Defaults, opts...); err != nil {
+		t.Fatalf("Zon plugin failed to install: %v", err)
+	}
+	return j
+}
+
 // parse creates a jsonic instance with the Zon plugin and parses src.
 func parse(t *testing.T, src string, opts ...map[string]any) any {
 	t.Helper()
-	j := jsonic.Make()
-	j.UseDefaults(Zon, Defaults, opts...)
-	result, err := j.Parse(src)
+	result, err := mustZon(t, opts...).Parse(src)
 	if err != nil {
 		t.Fatalf("parse(%q) unexpected error: %v", src, err)
 	}
@@ -26,9 +41,7 @@ func parse(t *testing.T, src string, opts ...map[string]any) any {
 
 func parseErr(t *testing.T, src string, opts ...map[string]any) error {
 	t.Helper()
-	j := jsonic.Make()
-	j.UseDefaults(Zon, Defaults, opts...)
-	_, err := j.Parse(src)
+	_, err := mustZon(t, opts...).Parse(src)
 	return err
 }
 

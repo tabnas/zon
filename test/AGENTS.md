@@ -4,6 +4,31 @@
 auto-discover and run **every** file in this directory, so a change here
 affects TypeScript and Go together — edit with that in mind.
 
+`zigzon/` and `strictness/` hold the generated zig-reference corpora. What is
+tracked there is the instrument, never the corpus: `zigzon/tools/` (the
+oracle and its harness) and `strictness/inputs.txt` (our own probe inputs).
+Both `cases.json` files are `.gitignore`d and are rebuilt from the pinned
+ziglang/zig 0.16.0 release by `scripts/fetch-zigzon.sh`.
+
+## The instrument's own rules
+
+- **The corpora are built automatically, not opt-in.** `pretest` in
+  `ts/package.json` and `TestMain` in `go/zigzon_test.go` both run
+  `scripts/fetch-zigzon.sh` before grading, so the suites run in CI as well
+  as locally. Do not remove either hook.
+- **A missing corpus is a FAILURE, not a skip.** The only skip permitted is
+  the platform one: a host with no pinned zig oracle toolchain
+  (anything but linux/macos on x86_64/aarch64) reports one explicit,
+  platform-named skip. Never widen that carve-out to cover a missing file.
+- **The census is pinned** — 178 valid / 44 invalid in `zigzon`, 45 / 72 in
+  `strictness`. If it fails, find out what changed in the generator; do not
+  edit the number to match.
+- **Every download is SHA-256 pinned.** A mismatch is a hard failure, never
+  something to work around.
+- Do not shrink a corpus, add a skip list, narrow the option set, or loosen
+  the value comparison to improve a number. A conformance figure that cannot
+  fail is worth nothing.
+
 ## Format
 
 Tab-separated, one case per line, with a header row naming the columns.
