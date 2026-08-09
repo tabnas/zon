@@ -115,7 +115,13 @@ function importsToRequire(code) {
 }
 
 // Rewrite `<expr>  // => <expected>` lines into __eq(expr, expected) calls.
-const ARROW = /\/\/\s*=>(.*)$/
+// The `m` flag matters. This regex is used two ways: per LINE inside
+// rewriteAssertions (where `$` is the line end either way), and as the
+// whole-BLOCK opt-in gate below (`ARROW.test(joined)`). Without `m`, `$`
+// anchors to the end of the joined block, so a block whose `// =>` is not on
+// its last line was silently dropped from the suite — no skip, no count, no
+// trace. With `m` the gate sees an assertion wherever it appears.
+const ARROW = /\/\/\s*=>(.*)$/m
 function rewriteAssertions(code) {
   let count = 0
   const out = code.split('\n').map((line) => {
@@ -186,7 +192,15 @@ describe('doc-examples', () => {
   }
 
   it('found at least one tested example (sanity)', () => {
-    // Not a hard failure if a repo has no `// =>` examples yet.
-    assert.ok(testable >= 0, `tested ${testable} doc example block(s)`)
+    // This read `testable >= 0`, which is true for every possible value —
+    // including 0. If doc discovery or the fence extractor broke, every doc
+    // example would stop running and this suite would stay green while
+    // checking nothing. This repo's docs do carry `// =>` examples, so
+    // "at least one" is the honest bound.
+    assert.ok(
+      0 < testable,
+      `tested ${testable} doc example block(s): the extractor found none, ` +
+        `so the doc examples are not being checked at all`,
+    )
   })
 })
