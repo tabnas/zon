@@ -338,20 +338,22 @@ The machine-readable list is [`tabnas.plugin.json`](tabnas.plugin.json)
 contract a fixture pins with `ERROR:<code>`, and two runtimes that reject
 the same input with different codes have agreed on nothing.
 
-### Known coverage gap
+### Error-code coverage
 
-**None of the five declared codes is exercised by a fixture — the gap is
-total.** The error rows that do exist (`test/spec/strict.tsv`,
-`test/spec/errors.tsv`) are bare `ERROR` cells: rejection is asserted, the
-code is not, so either runtime could change or lose a code without a test
-going red. Each code is reachable — all five are raised from real branches
-in both runtimes — and converting those rows to `ERROR:<code>` (plus adding
-rows for the codes no row reaches) is a genuinely useful contribution; do it
-as its own change, since it is test work rather than documentation.
+**All five declared codes are pinned by a fixture.** `test/spec/errors.tsv`
+carries one `ERROR:<code>` row per code — `0X2A` → `zon_number`, `.@""` →
+`zon_ident`, `'\u{110000}'` → `zon_char`, `///x` → `zon_doc_comment`, and
+`.{ .a = 1, .a = 2 }` → `zon_dup_field`. The shared `test/spec/*.tsv` runner
+compares the error's `code` (not its message), so a runtime that changes or
+loses a code goes red in both TS and Go. The many bare `ERROR` rows in
+`test/spec/strict.tsv` still assert rejection only, by design: they cover
+Zig-conformance rejections whose specific code is not the cross-runtime
+contract.
 
 This matters beyond zon: this repo is the canonical scaffold other grammar
-plugins are copied from ([`TEMPLATE.md`](TEMPLATE.md)), so until the gap is
-fixed here, every new plugin starts life with the same one.
+plugins are copied from ([`TEMPLATE.md`](TEMPLATE.md)), so the pattern new
+plugins now inherit is "pin every declared code", not the gap they used to
+start with.
 
 ## Untrusted input
 
