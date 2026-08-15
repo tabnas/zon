@@ -121,7 +121,7 @@ field names, and `//!` / `///` doc comments.
 |---|---|
 | [`ts/`](ts/) | **Canonical** TypeScript implementation — the `@tabnas/zon` package. Plugin in `src/zon.ts`. Peer-depends on `@tabnas/jsonic` and `@tabnas/parser`. No CLI. |
 | [`go/`](go/) | Go port — `github.com/tabnas/zon/go` (`const VERSION` in `go/zon.go`). Plugin `Zon` plus `MakeJsonic` / `Parse` helpers. Requires the published `github.com/tabnas/jsonic/go` (no `replace` directive). |
-| [`ts/zon-grammar.jsonic`](ts/zon-grammar.jsonic) | **Single source of truth** for the grammar-rule alts (the `val`/`list`/`elem`/`pair` overrides), authored in jsonic syntax. |
+| [`zon-grammar.jsonic`](zon-grammar.jsonic) | **Single source of truth** for the grammar-rule alts (the `val`/`list`/`elem`/`pair` overrides), authored in jsonic syntax. |
 | [`ts/embed-grammar.js`](ts/embed-grammar.js) | Embeds `zon-grammar.jsonic` into **both** `src/zon.ts` and `go/zon.go` (between `BEGIN/END EMBEDDED` markers) as a `grammarText` string literal. Runs as the first half of `npm run build`. |
 | [`test/spec/`](test/spec/) | Shared `.tsv` conformance fixtures. **Both** runners auto-discover and run every file here, so adding one covers TypeScript and Go together. See [`test/AGENTS.md`](test/AGENTS.md). |
 | [`ts/test/`](ts/test/) | TS tests (`.ts`, compiled to `dist-test/`): `zon.test.ts` (parse cases), `parity.test.ts` (the shared `test/spec/*.tsv` fixtures), `zigzon.test.ts` (the zig reference corpora), `debug-model.test.ts` (the `@tabnas/debug` composition / model introspection), `doc-examples.test.ts` (runs `// =>` assertions in README/doc fences), `version.test.ts` (the exported `VERSION` vs `package.json`). |
@@ -168,7 +168,7 @@ requirement.
 1. **TypeScript is canonical.** When TS and Go disagree on parse
    behavior, TS wins; change Go to match.
 2. **The grammar source is single-sourced, not duplicated.**
-   `ts/zon-grammar.jsonic` is authored once; `embed-grammar.js` copies it
+   `zon-grammar.jsonic` is authored once; `embed-grammar.js` copies it
    verbatim into the `grammarText` literal in both `src/zon.ts` and
    `go/zon.go`. **Never hand-edit the text between the
    `--- BEGIN/END EMBEDDED zon-grammar.jsonic ---` markers** in either
