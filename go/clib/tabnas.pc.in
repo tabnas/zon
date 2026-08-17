@@ -1,0 +1,11 @@
+# pkg-config for libtabnaszon (tabnas-clib-template: v1)
+# Install alongside the built library; substitute @PREFIX@ at install.
+prefix=@PREFIX@
+libdir=${prefix}/lib
+includedir=${prefix}/include
+
+Name: libtabnaszon
+Description: zon parser (libtabnaszon) — uniform tabnas C ABI (ADR-12)
+Version: @VERSION@
+Libs: -L${libdir} -ltabnaszon
+Cflags: -I${includedir}
