@@ -64,6 +64,10 @@ const c = @cImport(@cInclude("tabnas.h"));
 // c.tabnas_free.
 ```
 
+## Format notes
+
+ZON integers beyond float64 range parse to arbitrary-precision values; JSON number encoding would round them, so such values yield `valueError` rather than a corrupted number — retrieve them via a native runtime.
+
 ## Layout
 
 - `core.go` — the behaviour, in plain Go (testable).
