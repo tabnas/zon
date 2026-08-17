@@ -9,6 +9,15 @@
   "extensions": [
     ".zon"
   ],
+  "languageId": "zon",
+  "pluginKind": "grammar",
+  "grammarKind": "closure",
+  "lexStream": "clean",
+  "syncGroups": [
+    "end",
+    "comma",
+    "close"
+  ],
   "specDir": "test/spec",
   "errorCodes": [
     "zon_number",

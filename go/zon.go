@@ -78,14 +78,14 @@ const grammarText = `
   ]
 
   rule: elem: close: [
-    { s: '#CA #CB' b: 1 g: 'elem,trailing' }
-    { s: '#CA' r: elem g: 'elem,next' }
+    { s: '#CA #CB' b: 1 g: 'elem,trailing,comma' }
+    { s: '#CA' r: elem g: 'elem,next,comma' }
     { s: '#CB' b: 1 g: 'elem,end' }
   ]
 
   rule: pair: close: [
-    { s: '#CA #CB' b: 1 g: 'pair,trailing' }
-    { s: '#CA' r: pair g: 'pair,next' }
+    { s: '#CA #CB' b: 1 g: 'pair,trailing,comma' }
+    { s: '#CA' r: pair g: 'pair,next,comma' }
     { s: '#CB' b: 1 g: 'pair,end' }
   ]
 }
