@@ -23,7 +23,7 @@
   },
   "scripts": {
     "corpus": "bash ../scripts/fetch-zigzon.sh",
-    "pretest": "npm run corpus",
+    "pretest": "npm run build && npm run corpus",
     "test": "node --enable-source-maps --test \"dist-test/*.test.js\"",
     "test-some": "node --enable-source-maps --test-name-pattern=\"$npm_config_pattern\" --test \"dist-test/*.test.js\"",
     "test-watch": "node --test --watch dist-test/zon.test.js",
