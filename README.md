@@ -12,6 +12,8 @@ parser to read [Zig Object Notation (ZON)](https://ziglang.org/documentation/mas
 the anonymous-struct data format used for `build.zig.zon` manifests.
 Available for both TypeScript and Go, built on the same grammar.
 
+Docs, guides, the error reference and the playground: **[tabnas.dev](https://tabnas.dev)**.
+
 ZON looks like this:
 
 ```zon
