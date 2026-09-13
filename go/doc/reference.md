@@ -106,9 +106,9 @@ type ZonOptions struct {
 - **Default:** `false` (nil)
 - **Effect:** Controls how Zig character literals (`'x'`, `'\n'`,
   `'\x41'`, `'\u{1F600}'`) are parsed.
-  - nil / `false` — the literal becomes a one-character `string`. `'A'`
+  - nil or `false`. The literal becomes a one-character `string`. `'A'`
     → `"A"`.
-  - `true` — the literal becomes its numeric Unicode code point as a
+  - `true`. The literal becomes its numeric Unicode code point as a
     `float64`. `'A'` → `float64(65)`, `'\n'` → `float64(10)`,
     `'\u{1F600}'` → `float64(0x1F600)`.
 
@@ -123,9 +123,9 @@ tabnaszon.Parse(`'A'`, tabnaszon.ZonOptions{CharAsNumber: &charAsNum}) // float6
 - **Default:** `""`
 - **Effect:** Controls how enum-literal *values* (a bare `.foo` used in
   value position) are represented.
-  - `""` — the enum literal becomes the bare identifier `string`. `.red`
+  - `""`. The enum literal becomes the bare identifier `string`. `.red`
     → `"red"`.
-  - a non-empty string `T` — the enum literal is wrapped in a one-key
+  - a non-empty string `T`. The enum literal is wrapped in a one-key
     map `map[string]any{T: name}`, so it can be told apart from a plain
     string. With `EnumTag: "$enum"`, `.red` →
     `map[string]any{"$enum": "red"}`.
@@ -164,8 +164,8 @@ the key/value separator to `=`.
 Open with `.{`, contain `.field = value` pairs separated by commas,
 close with `}`. Field names are identifiers
 (`[A-Za-z_][A-Za-z0-9_]*`); the leading dot is stripped from the key. A
-name that is not a legal identifier is written `.@"..."` — any string
-literal, with the same escapes — and a struct may not repeat a name.
+name that is not a legal identifier is written `.@"..."` (any string
+literal, with the same escapes) and a struct may not repeat a name.
 
 ```
 .{ .a = 1, .b = 2 }       => map[string]any{"a": 1, "b": 2}
@@ -295,9 +295,9 @@ plugin.)
 | `#CB` | `}` | close of struct or tuple |
 | `#CL` | `=` | key/value separator |
 | `#TX` | `.ident`, `.@"..."` | field name (key) or enum literal (value) |
-| `VAL` | — | number, string, `true`/`false`/`null`, or `.enum` |
+| `VAL` | (none) | number, string, `true`/`false`/`null`, or `.enum` |
 
-`{`, `[`, `]` are not tokens — a bare `{` is a syntax error.
+`{`, `[`, `]` are not tokens, so a bare `{` is a syntax error.
 
 ## Grammar group tag
 

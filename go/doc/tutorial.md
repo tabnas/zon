@@ -1,4 +1,4 @@
-# Tutorial — your first ZON parse (Go)
+# Tutorial: your first ZON parse (Go)
 
 This walks you from nothing to a working parse, then through one option
 and one error. Follow it in order; each step builds on the last. When
@@ -7,8 +7,8 @@ tuple, switched on an option, and handled a parse error.
 
 For a recipe-style index of individual tasks, see the
 [how-to guide](guide.md). For exhaustive signatures and the full
-syntax, see the [reference](reference.md). For how it all works — and
-how the Go version differs from TypeScript — see
+syntax, see the [reference](reference.md). For how it all works (and
+how the Go version differs from TypeScript) see
 [concepts](concepts.md).
 
 ## 1. Install
@@ -35,8 +35,8 @@ result, err := tabnaszon.Parse(`.{ .name = "Alice", .age = 30 }`)
 // err:    nil
 ```
 
-You wrote Zig anonymous-struct syntax — `.{ ... }` to open, `.field`
-for each key, `=` to assign — and got back a `map[string]any`. Note
+You wrote Zig anonymous-struct syntax (`.{ ... }` to open, `.field`
+for each key, `=` to assign) and got back a `map[string]any`. Note
 that numbers come back as `float64`; that is the only numeric type ZON
 produces.
 
@@ -54,7 +54,7 @@ result, err = tabnaszon.Parse(`.{ "a", "b" }`)
 ```
 
 The plugin decides struct-vs-tuple by peeking past the opening brace,
-so you never mark which one you mean — just write it.
+so you never mark which one you mean; just write it.
 
 ## 4. Nest and mix
 
@@ -91,8 +91,8 @@ lists both.
 
 ## 6. Handle an error
 
-ZON is not a superset of JSON. A bare `{` is not a valid opener — the
-plugin removes it on purpose — so parsing one returns an error rather
+ZON is not a superset of JSON. A bare `{` is not a valid opener (the
+plugin removes it on purpose) so parsing one returns an error rather
 than panicking:
 
 ```go
@@ -108,8 +108,8 @@ Go never panics on a parse error; always check the returned `error`.
 
 ## Where to go next
 
-- [How-to guide](guide.md) — focused recipes for individual tasks.
-- [Reference](reference.md) — the public API, every option, the full
+- [How-to guide](guide.md). Focused recipes for individual tasks.
+- [Reference](reference.md). The public API, every option, the full
   ZON syntax accepted.
-- [Concepts](concepts.md) — how the plugin reshapes the engine, and
+- [Concepts](concepts.md). How the plugin reshapes the engine, and
   how the Go version differs from TypeScript.

@@ -28,7 +28,7 @@ const j = new Tabnas().use(jsonic).use(Zon)
 j.parse('.{ .a = 1, .b = 2 }') // => { a: 1, b: 2 }
 ```
 
-The instance is reusable — build it once and call `.parse()` as many
+The instance is reusable: build it once and call `.parse()` as many
 times as you like. (Building the grammar is the expensive part; do not
 reconstruct the instance per parse.)
 
@@ -103,7 +103,7 @@ j.parse("'\\u{1F600}'") // => 128512
 ## Tag enum literals to tell them apart from strings
 
 Without options, an enum-literal value like `.red` becomes the plain
-string `'red'` — indistinguishable from `"red"` in the parsed tree.
+string `'red'`, indistinguishable from `"red"` in the parsed tree.
 Set `enumTag` to wrap each enum value in a one-key object so you can
 tell which was which:
 
@@ -117,7 +117,7 @@ const j = new Tabnas().use(jsonic).use(Zon, { enumTag: '$enum' })
 j.parse('.{ .kind = .red, .label = "red" }') // => { kind: { $enum: 'red' }, label: 'red' }
 ```
 
-The tag name is yours to choose — use whatever key your consumers
+The tag name is yours to choose; use whatever key your consumers
 expect.
 
 ## Read multi-line Zig strings
@@ -144,7 +144,7 @@ doc // => { description: 'first line\nsecond line' }
 
 ## Handle a parse error
 
-ZON deliberately rejects non-ZON input — a bare `{` opener, for
+ZON deliberately rejects non-ZON input, a bare `{` opener for
 instance. A failed parse throws the engine's parse error; catch it and
 read its fields:
 
@@ -168,8 +168,8 @@ threw // => true
 ## Re-enable strict JSON while the plugin is loaded
 
 Every grammar alternate the plugin adds carries the group tag `zon`.
-To switch those alts off — restoring the plain jsonic grammar while
-the plugin stays registered — exclude that tag:
+To switch those alts off (restoring the plain jsonic grammar while
+the plugin stays registered) exclude that tag:
 
 ```typescript
 import { Tabnas } from '@tabnas/parser'
@@ -181,5 +181,5 @@ const j = new Tabnas().use(jsonic).use(Zon).options({
 })
 ```
 
-This is rarely useful — you would normally just not load the plugin —
-but it is the supported way to peel the ZON layer back off.
+This is rarely useful, since you would normally not load the plugin at
+all, but it is the supported way to peel the ZON layer back off.

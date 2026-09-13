@@ -1,4 +1,4 @@
-# Tutorial — your first ZON parse
+# Tutorial: your first ZON parse
 
 This walks you from nothing to a working parse, then through one
 option and one error. Follow it in order; each step builds on the
@@ -38,8 +38,8 @@ const j = new Tabnas().use(jsonic).use(Zon)
 j.parse('.{ .name = "Alice", .age = 30 }') // => { name: 'Alice', age: 30 }
 ```
 
-You wrote Zig anonymous-struct syntax — `.{ ... }` to open, `.field`
-for each key, `=` to assign — and got back a plain object. That is the
+You wrote Zig anonymous-struct syntax (`.{ ... }` to open, `.field`
+for each key, `=` to assign) and got back a plain object. That is the
 point: the plugin teaches the engine to read ZON.
 
 ## 3. Parse a tuple
@@ -59,7 +59,7 @@ j.parse('.{ "a", "b" }')     // => ['a', 'b']
 ```
 
 The plugin decides struct-vs-tuple by peeking past the opening brace,
-so you never have to mark which one you mean — just write it.
+so you never have to mark which one you mean; just write it.
 
 ## 4. Nest and mix
 
@@ -99,8 +99,8 @@ There are only two options, `charAsNumber` and `enumTag`; the
 
 ## 6. Catch an error
 
-ZON is not a superset of JSON. A bare `{` is not a valid opener — the
-plugin removes it on purpose — so parsing one throws:
+ZON is not a superset of JSON. A bare `{` is not a valid opener (the
+plugin removes it on purpose) so parsing one throws:
 
 ```js
 import { Tabnas } from '@tabnas/parser'
@@ -123,8 +123,8 @@ a source location, and a formatted message you can show a user.
 
 ## Where to go next
 
-- [How-to guide](guide.md) — focused recipes for individual tasks.
-- [Reference](reference.md) — the public API, every option, the full
+- [How-to guide](guide.md). Focused recipes for individual tasks.
+- [Reference](reference.md). The public API, every option, the full
   ZON syntax accepted.
-- [Concepts](concepts.md) — how the plugin reshapes the engine, and
+- [Concepts](concepts.md). How the plugin reshapes the engine, and
   why.
