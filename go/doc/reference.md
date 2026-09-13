@@ -30,7 +30,7 @@ import tabnaszon "github.com/tabnas/zon/go"
 Parses a ZON string and returns the resulting value. Convenience
 wrapper around `MakeJsonic(opts...).Parse(src)`.
 
-With **no** options it reuses a single lazily-created instance, so
+With **no** options it reuses a single lazily created instance, so
 repeated calls do not rebuild the engine + grammar. The shared instance
 is safe for concurrent use (each parse builds its own context and only
 reads instance state). With options, a dedicated instance is built per
