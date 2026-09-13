@@ -8,7 +8,7 @@
 <!-- /tabnas-badges -->
 
 A grammar plugin that teaches the [Tabnas](https://github.com/tabnas/parser)
-parser to read [Zig Object Notation (ZON)](https://ziglang.org/documentation/master/#ZON) —
+parser to read [Zig Object Notation (ZON)](https://ziglang.org/documentation/master/#ZON),
 the anonymous-struct data format used for `build.zig.zon` manifests.
 Available for both TypeScript and Go, built on the same grammar.
 
@@ -39,7 +39,7 @@ go get github.com/tabnas/zon/go@latest
 
 ## One tiny example
 
-**TypeScript** — the plugin layers onto a Tabnas engine:
+**TypeScript.** The plugin layers onto a Tabnas engine:
 
 ```js
 import { Tabnas } from '@tabnas/parser'
@@ -52,7 +52,7 @@ j.parse('.{ .name = "Alice", .age = 30 }') // => { name: 'Alice', age: 30 }
 j.parse('.{ 1, 2, 3 }')                     // => [1, 2, 3]
 ```
 
-**Go** — `tabnaszon.Parse` is the one-call entry point:
+**Go.** `tabnaszon.Parse` is the one-call entry point:
 
 ```go
 import tabnaszon "github.com/tabnas/zon/go"
@@ -87,7 +87,7 @@ See [`AGENTS.md`](AGENTS.md#conformance-claim) for the full details.
 ## Documentation
 
 Full documentation follows the [Diátaxis](https://diataxis.fr)
-framework — one file per quadrant, per language:
+framework: one file per quadrant, per language:
 
 | | TypeScript | Go |
 |---|---|---|
@@ -103,8 +103,8 @@ Per-language hubs: [`ts/README.md`](ts/README.md),
 
 The grammar is defined once in the top-level
 [`zon-grammar.jsonic`](zon-grammar.jsonic) and embedded into both
-implementations — TypeScript ([`ts/src/zon.ts`](ts/src/zon.ts)) and Go
-([`go/zon.go`](go/zon.go)) — by [`ts/embed-grammar.js`](ts/embed-grammar.js)
+implementations, TypeScript ([`ts/src/zon.ts`](ts/src/zon.ts)) and Go
+([`go/zon.go`](go/zon.go)), by [`ts/embed-grammar.js`](ts/embed-grammar.js)
 during the TypeScript build. Edit the grammar there, not in the
 generated sources.
 

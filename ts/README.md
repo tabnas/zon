@@ -30,7 +30,7 @@ j.parse('.{ .name = "Alice", .age = 30 }') // => { name: 'Alice', age: 30 }
 j.parse('.{ 1, 2, 3 }')                     // => [1, 2, 3]
 ```
 
-Build the instance once and reuse it — constructing the grammar is the
+Build the instance once and reuse it: constructing the grammar is the
 expensive part.
 
 ## Documentation
@@ -38,11 +38,11 @@ expensive part.
 Full documentation follows the [Diátaxis](https://diataxis.fr)
 framework:
 
-- [Tutorial](doc/tutorial.md) — a guided first parse, start to finish.
-- [How-to guide](doc/guide.md) — short recipes for individual tasks.
-- [Reference](doc/reference.md) — the public API, every option, and the
+- [Tutorial](doc/tutorial.md). A guided first parse, start to finish.
+- [How-to guide](doc/guide.md). Short recipes for individual tasks.
+- [Reference](doc/reference.md). The public API, every option, and the
   complete ZON syntax accepted.
-- [Concepts](doc/concepts.md) — how the plugin reshapes the engine, and
+- [Concepts](doc/concepts.md). How the plugin reshapes the engine, and
   why.
 
 For the Go port, see [`../go/README.md`](../go/README.md).

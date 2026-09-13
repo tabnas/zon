@@ -1,6 +1,6 @@
 # Concepts (Go)
 
-Background on how the Go ZON plugin is put together, and why — plus a
+Background on how the Go ZON plugin is put together, and why, plus a
 section on how it differs from the TypeScript version. This is
 understanding-oriented reading; for steps see the
 [tutorial](tutorial.md) and [how-to guide](guide.md), and for exact
@@ -11,16 +11,16 @@ signatures and syntax see the [reference](reference.md).
 The plugin has no parser of its own. It is a thin layer on a stack of
 two pieces:
 
-- the **jsonic engine** (`github.com/tabnas/jsonic/go`) — a rule-based
+- the **jsonic engine** (`github.com/tabnas/jsonic/go`), a rule-based
   parser over a configurable, matcher-based lexer, carrying the
   relaxed-JSON grammar and its helper actions (`@array$`, the
   `val`/`map`/`list`/`pair`/`elem` rules), and
-- **this plugin** (`github.com/tabnas/zon/go`) — the option overrides,
+- **this plugin** (`github.com/tabnas/zon/go`), the option overrides,
   custom lex matchers, and small grammar overlay that retune that stack
   to read Zig anonymous-struct syntax instead of JSON.
 
 Because the engine is configuration-driven, ZON support is mostly an
-options change plus a handful of alternates — not a new parser. The
+options change plus a handful of alternates, not a new parser. The
 plugin embeds the canonical grammar text (from the repo-root
 `zon-grammar.jsonic`, kept in sync with the TypeScript source by the
 build), parses it with a throwaway jsonic instance into a
@@ -43,7 +43,7 @@ JSON and ZON share scalars but differ in structure:
 | Comments | `#` `//` `/* */` | `//` only |
 
 The plugin makes those swaps by **disabling** what JSON allows and
-**adding** what ZON needs, rather than accepting both — so a
+**adding** what ZON needs, rather than accepting both, so a
 `build.zig.zon` file that accidentally used JSON braces is a clear
 error, not a silent success.
 
@@ -66,7 +66,7 @@ applied together through one `GrammarSpec`:
    - char literals emit a `#NR` number token whose value is a one-char
      string or the code point (as `float64`), per `CharAsNumber`.
    - numeric literals emit `#NR` from a matcher that reproduces Zig's
-     literal grammar exactly — jsonic's own number lexer is switched
+     literal grammar exactly: jsonic's own number lexer is switched
      off, because relaxed-JSON numbers (`+1`, `.5`, `0123`, `1__0`) are
      not ZON numbers. An integer too large for an exact `float64`
      becomes a `*big.Int`.
@@ -94,7 +94,7 @@ maps/lists, top-level commas, and path-dive extensions, and
 ## Struct vs tuple disambiguation
 
 ZON uses one opener, `.{`, for both maps and lists. The parser allows
-only two tokens of lookahead — not enough to tell a struct from a tuple
+only two tokens of lookahead, not enough to tell a struct from a tuple
 by grammar alone. So the decision is pushed into the lexer: when the
 `.{` matcher fires (`peekIsMapOpen`), it scans past the brace,
 whitespace, and `//` comments and checks for `.ident` followed by `=`.
@@ -125,7 +125,7 @@ itself is cheap. The default no-options `Parse` path therefore caches a
 single instance behind a `sync.Once`, reusing it across calls (safe for
 concurrent use, since a parse builds its own context and only reads
 instance state). Option-taking calls build a dedicated instance, since
-their configuration differs per call — use `MakeJsonic` once and reuse
+their configuration differs per call; use `MakeJsonic` once and reuse
 it for a hot loop with fixed options. The repo's `perf_test.go` guards
 the reuse win.
 
@@ -133,14 +133,14 @@ the reuse win.
 
 The TypeScript implementation is the reference; the Go module is a
 faithful port built from the same `zon-grammar.jsonic`. The differences
-do **not** change a successful parse's *structure* — they concern the
+do **not** change a successful parse's *structure*: they concern the
 host language's API shape, value types, and a couple of error codes.
 
 ### API shape
 
 | Area | TypeScript | Go |
 |---|---|---|
-| Convenience entry | none — install the plugin yourself | `tabnaszon.Parse(src, opts...)` and `tabnaszon.MakeJsonic(opts...)` |
+| Convenience entry | none, install the plugin yourself | `tabnaszon.Parse(src, opts...)` and `tabnaszon.MakeJsonic(opts...)` |
 | Build a parser | `new Tabnas().use(jsonic).use(Zon, opts)` | `tabnaszon.MakeJsonic(opts)` or `j.UseDefaults(tabnaszon.Zon, tabnaszon.Defaults, m)` |
 | Options | one object `{ charAsNumber, enumTag }` | `ZonOptions{ CharAsNumber *bool, EnumTag string }`, or a `map[string]any` |
 | "Omit vs set" | option present or absent | `*bool` nil vs set; `EnumTag == ""` means unset |
@@ -166,14 +166,14 @@ with predictable concrete types:
 | Tagged enum | `{ [tag]: name }` | `map[string]any{tag: name}` |
 
 The most visible consequence: ZON integers like `42` come back as the
-JavaScript number `42` in TypeScript and as `float64(42)` in Go — Go
+JavaScript number `42` in TypeScript and as `float64(42)` in Go, because Go
 has no separate integer type in the result tree.
 
 ### Error codes
 
 A successful parse is identical across runtimes, but (inheriting
 jsonic's documented divergences) a few *failing* inputs map to
-different error **codes** between the two — for example a raw control
+different error **codes** between the two: for example a raw control
 character inside a double-quoted string reports `unprintable` in
 TypeScript and `unterminated_string` in Go. Both report the failure at
 the same row/column; only the `Code` differs. If you branch on the
@@ -181,7 +181,7 @@ error code, account for this. See the jsonic Go
 [differences reference](../../../jsonic/go/doc/differences.md) for the
 full list.
 
-## Accepted vs rejected — edge cases
+## Accepted vs rejected: edge cases
 
 - `.{}` → `[]any{}`. An empty literal is a list, not a map.
 - `{ a = 1 }` → **error** (returned, not panicked). Bare `{` is not a

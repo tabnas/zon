@@ -11,7 +11,7 @@ import tabnaszon "github.com/tabnas/zon/go"
 
 ## Parse a single string
 
-`tabnaszon.Parse` is the simplest entry point — pass source, get a value and
+`tabnaszon.Parse` is the simplest entry point: pass source, get a value and
 an error:
 
 ```go
@@ -87,7 +87,7 @@ result, err := tabnaszon.Parse(`'A'`, tabnaszon.ZonOptions{CharAsNumber: &charAs
 ## Tag enum literals to tell them apart from strings
 
 Without options, an enum-literal value like `.red` becomes the plain
-string `"red"` — indistinguishable from `"red"` in the parsed tree.
+string `"red"`, indistinguishable from `"red"` in the parsed tree.
 Set `EnumTag` to wrap each enum value in a one-key map so you can tell
 which was which:
 
@@ -139,7 +139,7 @@ instance, so you do not need `MakeJsonic` for that case.)
 
 ## Handle a parse error
 
-ZON deliberately rejects non-ZON input — a bare `{` opener, for
+ZON deliberately rejects non-ZON input, a bare `{` opener for
 instance. The parse never panics; it returns an `error`:
 
 ```go
@@ -152,8 +152,8 @@ if err != nil {
 ## Re-enable strict JSON while the plugin is loaded
 
 Every grammar alternate the plugin adds carries the group tag `zon`.
-To switch those alts off — restoring the plain jsonic grammar while
-the plugin stays registered — exclude that tag through the underlying
+To switch those alts off (restoring the plain jsonic grammar while
+the plugin stays registered) exclude that tag through the underlying
 jsonic instance:
 
 ```go
@@ -167,5 +167,5 @@ j.UseDefaults(tabnaszon.Zon, tabnaszon.Defaults)
 j.SetOptions(tabnasjsonic.Options{Rule: &tabnasjsonic.RuleOptions{Exclude: "zon"}})
 ```
 
-This is rarely useful — you would normally just not load the plugin —
-but it is the supported way to peel the ZON layer back off.
+This is rarely useful, since you would normally not load the plugin at
+all, but it is the supported way to peel the ZON layer back off.

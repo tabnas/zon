@@ -71,7 +71,7 @@ reconstruct the engine per call.
 Parses a ZON source string and returns the resulting JavaScript value.
 Objects come back as maps built with `Object.create(null)` (no
 prototype); arrays are plain arrays; scalars are `number`, `string`,
-`boolean`, or `null` — plus `bigint` for an integer literal too large to
+`boolean`, or `null`, plus `bigint` for an integer literal too large to
 be an exact double. A failed parse throws (see [Errors](#errors)).
 
 ## Options
@@ -91,8 +91,8 @@ type ZonOptions = {
 - **Default:** `false`
 - **Effect:** Controls how Zig character literals (`'x'`, `'\n'`,
   `'\x41'`, `'\u{1F600}'`) are parsed.
-  - `false` — the literal becomes a one-character string. `'A'` → `'A'`.
-  - `true` — the literal becomes its numeric Unicode code point. `'A'`
+  - `false`. The literal becomes a one-character string. `'A'` → `'A'`.
+  - `true`. The literal becomes its numeric Unicode code point. `'A'`
     → `65`, `'\n'` → `10`, `'\u{1F600}'` → `128512`.
 
 ```js
@@ -110,9 +110,9 @@ j.parse("'A'") // => 65
 - **Default:** `null`
 - **Effect:** Controls how enum-literal *values* (a bare `.foo` used in
   value position) are represented.
-  - `null` — the enum literal becomes the bare identifier string.
+  - `null`. The enum literal becomes the bare identifier string.
     `.red` → `'red'`.
-  - a string `T` — the enum literal is wrapped in a one-key object
+  - a string `T`. The enum literal is wrapped in a one-key object
     `{ [T]: name }`, so it can be distinguished from an ordinary
     string. With `enumTag: '$enum'`, `.red` → `{ $enum: 'red' }`.
 
@@ -141,7 +141,7 @@ A struct literal opens with `.{`, contains `.field = value` pairs
 separated by commas, and closes with `}`. Field names are identifiers
 (`[A-Za-z_][A-Za-z0-9_]*`), written with a leading dot that is
 stripped from the key. A name that is not a legal identifier is written
-`.@"..."` — any string literal, with the same escapes — and a struct may
+`.@"..."` (any string literal, with the same escapes) and a struct may
 not repeat a field name.
 
 ```
@@ -219,7 +219,7 @@ literal grammar exactly, so ZON's strictness is preserved:
 are all **rejected**, as the zig compiler rejects them. A leading `-` is a
 negation prefix and may be separated by space (`- 1`); `-nan` is not a
 literal. An integer whose exact value does not fit an IEEE-754 double is
-returned as a `bigint` rather than silently rounded — everything else is a
+returned as a `bigint` rather than silently rounded; everything else is a
 `number`.
 
 ### Strings
@@ -289,9 +289,9 @@ diagram legend):
 | `#CB` | `}` | close of struct or tuple |
 | `#CL` | `=` | key/value separator |
 | `#TX` | `.ident`, `.@"..."` | field name (key) or enum literal (value) |
-| `VAL` | — | a value: number, string, `true`/`false`/`null`, or `.enum` |
+| `VAL` | (none) | a value: number, string, `true`/`false`/`null`, or `.enum` |
 
-`{`, `[`, and `]` are **not** tokens — they are removed, so a bare `{`
+`{`, `[`, and `]` are **not** tokens: they are removed, so a bare `{`
 is a syntax error.
 
 ## Grammar group tag
@@ -309,7 +309,7 @@ const j = new Tabnas().use(jsonic).use(Zon).options({
 ## Errors
 
 A failed parse throws the engine's standard parse error. It carries
-the usual fields — an error `code`, the source location (`row`, `col`,
+the usual fields: an error `code`, the source location (`row`, `col`,
 `pos`), the offending `src` fragment, and a formatted multi-line
 `message` with a source-context extract. Inputs that are valid jsonic
 but not valid ZON (such as a bare `{` opener) are errors.

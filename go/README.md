@@ -17,7 +17,7 @@ import tabnaszon "github.com/tabnas/zon/go"
 
 ## One example
 
-`tabnaszon.Parse` is the one-call entry point — pass source, get a value and
+`tabnaszon.Parse` is the one-call entry point: pass source, get a value and
 an `error`:
 
 ```go
@@ -38,11 +38,11 @@ it.
 Full documentation follows the [Diátaxis](https://diataxis.fr)
 framework:
 
-- [Tutorial](doc/tutorial.md) — a guided first parse, start to finish.
-- [How-to guide](doc/guide.md) — short recipes for individual tasks.
-- [Reference](doc/reference.md) — the public API, every option, and the
+- [Tutorial](doc/tutorial.md). A guided first parse, start to finish.
+- [How-to guide](doc/guide.md). Short recipes for individual tasks.
+- [Reference](doc/reference.md). The public API, every option, and the
   complete ZON syntax accepted.
-- [Concepts](doc/concepts.md) — how the plugin reshapes the engine, and
+- [Concepts](doc/concepts.md). How the plugin reshapes the engine, and
   how the Go version differs from TypeScript.
 
 For the canonical TypeScript implementation, see
