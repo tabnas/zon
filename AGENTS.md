@@ -57,35 +57,42 @@ strings) and `enumTag` (wrap enum-literal values `.foo` in
 
 ## Conformance claim
 
-**`@tabnas/zon` accepts exactly the documents `ziglang/zig` 0.16.0
-accepts, and produces the same value for each.** That is not a slogan:
-the reference implementation itself is the judge. `std.zig.Ast` (in
-`.zon` mode) plus `std.zig.ZonGen`, from a pinned zig 0.16.0, decide
-every verdict and every value in the two corpora
+**On every document in the two corpora, `@tabnas/zon` gives the verdict
+`ziglang/zig` 0.16.0 gives, and the same value for each accepted one.**
+That is not a slogan: the reference implementation itself is the judge.
+`std.zig.Ast` (in `.zon` mode) plus `std.zig.ZonGen`, from a pinned zig
+0.16.0, decide every verdict and every value in the two corpora
 [`scripts/fetch-zigzon.sh`](scripts/fetch-zigzon.sh) generates.
 
-**Measured (zig 0.16.0, commit `24fdd5b7a4c1`, both runtimes identical):**
+It is a claim about the corpora, and it used to be written as "accepts
+exactly the documents zig accepts", which is wider than anything measured
+and is false: the gaps below were found by putting inputs the corpora do
+not contain through the same oracle. A corpus is a measuring instrument,
+not a proof, and the honest sentence names what it measured.
+
+**Measured (zig 0.16.0, commit `24fdd5b7a4c1`, all three runtimes identical):**
 
 | Corpus | Documents | Accepted correctly | Rejected correctly |
 |---|---|---|---|
 | `test/zigzon/cases.json` — every `.zon` file in the zig tree plus every ZON snippet in `lib/std/zon/parse.zig` | 228 | **184 / 184** (values compared, not just "it parsed") | **44 / 44** |
-| `test/strictness/cases.json` — locally authored leniency probes, judged by the same oracle | 117 | **45 / 45** | **72 / 72** |
+| `test/strictness/cases.json` — locally authored leniency probes, judged by the same oracle | 122 | **48 / 48** | **74 / 74** |
 
 The corpora are **not bundled** — generating them downloads a pinned zig
 toolchain and source tarball (~80 MB, verified by SHA-256 and cached in
-`test/zigzon/vendor/`, git-ignored). They are **not opt-in**: both
+`test/zigzon/vendor/`, git-ignored). They are **not opt-in**: all three
 runtimes generate them themselves before grading, so the suites run
-everywhere `npm test` / `go test ./...` runs, CI included.
+everywhere `npm test` / `go test ./...` / `cargo test` runs, CI included.
 
 - TypeScript: the `pretest` hook in `ts/package.json`.
 - Go: `TestMain` in `go/zigzon_test.go` (the shared CI workflow calls
   `go test ./...` directly and has no repo-specific step to hang a fetch
   on).
+- Rust: the `ensure_corpora` guard in `rs/tests/zigzon_test.rs`.
 
 If a corpus is still missing after that, the suites **FAIL** with
 instructions — they never skip. A conformance suite that quietly does not
 run reports a green tick while measuring nothing, which is worse than no
-suite. Both runners also pin the exact corpus census (184/44 and 45/72),
+suite. All three runners also pin the exact corpus census (184/44 and 48/74),
 so narrowing a corpus goes red instead of inflating the pass rate.
 
 The single exception is a host `scripts/fetch-zigzon.sh` has no pinned zig
@@ -112,10 +119,55 @@ resolves against a target type:
    empty anonymous literal is both an empty struct and an empty tuple and
    only a target type can tell them apart.
 
-Everything else the reference rejects, this parser rejects — including
-the cases jsonic's relaxed lexer would otherwise wave through
-(`+1`, `.5`, `5.`, `0123`, `1__0`, `0x_2A`, `0X2A`), duplicate struct
-field names, and `//!` / `///` doc comments.
+Everything the corpora cover that the reference rejects, this parser
+rejects — including the cases jsonic's relaxed lexer would otherwise wave
+through (`+1`, `.5`, `5.`, `0123`, `1__0`, `0x_2A`, `0X2A`), duplicate
+struct field names, and `//!` / `///` doc comments.
+
+### The known conformance gaps
+
+Measured on 2026-09-21 by putting each input below through the SAME
+pinned oracle the corpora use (`test/zigzon/vendor/oracle-build/oracle`)
+and through all three runtimes. None is in either corpus, and none can
+be: a corpus row asserts the oracle's verdict, so adding one would turn
+the conformance suites red in all three runtimes rather than record
+anything. They are listed here, and pinned, so the prose above cannot
+quietly become false again.
+
+**1. String escapes inside `"..."` are jsonic's, not Zig's.** An
+ordinary double-quoted string is lexed by the engine, not by this plugin
+(only `.@"..."` identifiers go through the plugin's own decoder), so the
+escape set is the relaxed-JSON one.
+
+| input | zig 0.16.0 | TypeScript | Go | Rust |
+|---|---|---|---|---|
+| `"\u0041"` | `expected '{', found '0'` | `"A"` | `"A"` | `"A"` |
+| `"\b"` | `invalid escape character: 'b'` | `"\b"` | `"\b"` | `"\b"` |
+| `"\f"` | `invalid escape character: 'f'` | `"\f"` | `"\f"` | `"\f"` |
+| `"\/"` | `invalid escape character: '/'` | `"/"` | `"/"` | `"/"` |
+| `"\v"` | `invalid escape character: 'v'` | `"\v"` | `"\v"` | `"\v"` |
+| `"\u{D800}"` | `unicode escape does not correspond to a valid unicode scalar value` | `"\uD800"` | `U+FFFD` | `U+FFFD` |
+| `"\u{D800}\u{DC00}"` | the same rejection | `"\u{10000}"` | `"\u{10000}"` | `"\u{10000}"` |
+
+The same escape inside `.@"..."` IS this plugin's, and does match the
+oracle: `.@"\u0041"`, `.@"\b"`, `.@"\u{D800}"` and `.@"\u{110000}"`
+are all rejected with `zon_ident`, and `test/spec/strict.tsv` pins the
+surrogate pair of them. Repairing the string row would mean the plugin
+taking over the `"..."` lexer in all three runtimes.
+
+**2. An exponent past the host integer.** The Go port reads a decimal or
+hexadecimal exponent with `strconv.Atoi` and rejects what overflows it,
+where the oracle saturates to an infinity or a zero; the canonical
+TypeScript reads only a prefix of the literal it rebuilds once the
+exponent needs exponent form itself. Both are measured in
+[`DIVERGENCE.md`](DIVERGENCE.md) under "A decimal exponent past what the
+runtime's integer parse holds", which also records that the RUST column
+is the one that matches the oracle on every row.
+
+Pinned by `the_known_conformance_gaps_against_the_zig_oracle` in
+[`rs/tests/zon_test.rs`](rs/tests/zon_test.rs), which asserts the Rust
+column of the first table above. It fails if the engine ever tightens
+the escape set, which is the signal to re-measure this section.
 
 ## Repository map
 

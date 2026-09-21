@@ -46,6 +46,11 @@ infinity	ERROR
 # --- identifiers ------------------------------------------------------------
 .@""	ERROR
 .a.b	ERROR
+# A `\u{...}` escape in an IDENTIFIER must name a Unicode scalar value, so the
+# surrogate block is rejected. A CHARACTER literal is an integer in Zig and
+# accepts one: see chars.tsv for `'\\u{D800}'`.
+.@"\\u{D800}"	ERROR
+.@"\\u{DFFF}"	ERROR
 # --- struct / tuple shape ---------------------------------------------------
 .{ .a = 1, .a = 2 }	ERROR
 .{\n    .name = 10,\n    .name = 20,\n}	ERROR

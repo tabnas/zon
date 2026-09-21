@@ -379,7 +379,14 @@ function decodeZigString(
         const hex = src.substring(i + 3, endI)
         if (!/^[0-9a-fA-F]+$/.test(hex)) return null
         const cp = parseInt(hex, 16)
-        if (0x10ffff < cp) return null
+        // Zig: a STRING escape must name a Unicode SCALAR value, so the
+        // surrogate block is refused along with anything above U+10FFFF.
+        // Measured against the pinned zig 0.16.0 oracle, which answers
+        // `.@"\u{D800}"` with "unicode escape does not correspond to a
+        // valid unicode scalar value". A CHARACTER literal is an integer
+        // in Zig and does accept a surrogate, so buildZonCharMatcher
+        // deliberately does not share this test.
+        if (0x10ffff < cp || (0xd800 <= cp && cp <= 0xdfff)) return null
         out += String.fromCodePoint(cp)
         i = endI + 1
       } else if (undefined !== ZIG_ESCAPE[e]) {
@@ -531,7 +538,10 @@ function buildZonCharMatcher(charAsNumber: boolean) {
             const hex = src.substring(i, endI)
             if (!/^[0-9a-fA-F]+$/.test(hex)) return undefined
             codepoint = parseInt(hex, 16)
-            // Zig: the escape must name a valid unicode scalar value.
+            // Zig: a character literal is an INTEGER, so the escape names
+            // a code point rather than a scalar value: U+10FFFF is the
+            // only bound, and a lone surrogate is accepted. Measured: the
+            // pinned zig 0.16.0 oracle answers `'\u{D800}'` with 55296.
             if (0x10ffff < codepoint) return lex.bad('zon_char', sI, endI + 2)
             i = endI + 1
             break

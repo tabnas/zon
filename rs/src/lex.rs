@@ -233,7 +233,15 @@ fn decode_zig_string(src: &str, mut i: usize) -> Option<(String, usize)> {
                         return None;
                     }
                     let code_point = u32::from_str_radix(hex, 16).ok()?;
-                    if 0x10ffff < code_point {
+                    // Zig: a string escape must name a Unicode SCALAR
+                    // value, so the surrogate block is refused along with
+                    // anything above U+10FFFF. Measured against the pinned
+                    // zig 0.16.0 oracle, which answers `.@"\u{D800}"`
+                    // with "unicode escape does not correspond to a valid
+                    // unicode scalar value". A CHARACTER literal is an
+                    // integer in Zig and does accept a surrogate, so
+                    // `char_matcher` deliberately does not share this test.
+                    if !is_scalar_value(code_point) {
                         return None;
                     }
                     out.push(char_of(code_point));
@@ -267,8 +275,19 @@ fn decode_zig_string(src: &str, mut i: usize) -> Option<(String, usize)> {
     None
 }
 
+/// Whether `code_point` is a Unicode SCALAR value: at most U+10FFFF and
+/// outside the surrogate block U+D800..=U+DFFF. This is what zig's
+/// `std.zig.string_literal` requires of a `\u{...}` escape inside a
+/// string or an `@"..."` identifier, and the whole of what
+/// `char::from_u32` accepts.
+fn is_scalar_value(code_point: u32) -> bool {
+    char::from_u32(code_point).is_some()
+}
+
 /// The character a code point names. A lone surrogate has no character,
-/// and folds to U+FFFD as it does throughout the engine.
+/// and folds to U+FFFD as it does throughout the engine. Reachable only
+/// from the character-literal path and from `\xNN`, which cannot name
+/// one: [`decode_zig_string`] refuses a surrogate escape outright.
 fn char_of(code_point: u32) -> char {
     char::from_u32(code_point).unwrap_or('\u{FFFD}')
 }
@@ -401,7 +420,15 @@ fn char_matcher(lexer: &mut Lexer<'_>, char_as_number: bool) -> Option<Token> {
                     if !is_hex(hex) {
                         return None;
                     }
-                    // Zig: the escape must name a Unicode scalar value.
+                    // Zig: a character literal is an INTEGER, so the
+                    // escape names a code point rather than a scalar
+                    // value: U+10FFFF is the only bound, and a lone
+                    // surrogate is accepted. Measured: the pinned zig
+                    // 0.16.0 oracle answers `'\u{D800}'` with 55296 and
+                    // `'\u{110000}'` with "unicode escape does not
+                    // correspond to a valid unicode scalar value". This is
+                    // why the test here is NOT `is_scalar_value`, which
+                    // `decode_zig_string` uses for a STRING escape.
                     // A number too big for u32 is above U+10FFFF too.
                     match u32::from_str_radix(hex, 16) {
                         Ok(cp) if cp <= 0x10ffff => code_point = cp,

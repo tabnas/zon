@@ -477,7 +477,14 @@ func decodeZigString(src string, i int) (string, int, bool) {
 				return "", i, false
 			}
 			n, err := strconv.ParseInt(hex, 16, 64)
-			if err != nil || n > 0x10ffff {
+			// Zig: a STRING escape must name a Unicode SCALAR value, so
+			// the surrogate block is refused along with anything above
+			// U+10FFFF. Measured against the pinned zig 0.16.0 oracle,
+			// which answers `.@"\u{D800}"` with "unicode escape does not
+			// correspond to a valid unicode scalar value". A CHARACTER
+			// literal is an integer in Zig and does accept a surrogate,
+			// so the char matcher deliberately omits this test.
+			if err != nil || n > 0x10ffff || (0xd800 <= n && n <= 0xdfff) {
 				return "", i, false
 			}
 			if n == 0 {
@@ -731,7 +738,11 @@ func buildZonCharMatcher(charAsNumber bool) jsonic.MakeLexMatcher {
 						return nil
 					}
 					codepoint = int(n)
-					// Zig: the escape must name a valid unicode scalar value.
+					// Zig: a character literal is an INTEGER, so the escape
+					// names a code point rather than a scalar value:
+					// U+10FFFF is the only bound, and a lone surrogate is
+					// accepted. Measured: the pinned zig 0.16.0 oracle
+					// answers `'\u{D800}'` with 55296.
 					if codepoint > 0x10ffff {
 						return zonBad(lex, "zon_char", src, sI, end+2)
 					}
