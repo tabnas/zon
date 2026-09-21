@@ -206,15 +206,27 @@ impl ZonOptions {
     /// `{"charAsNumber": true, "enumTag": false}` failed to deserialize
     /// at `enumTag` and fell back to the DEFAULTS, so `'A'` parsed as
     /// `"A"` where both other runtimes give `65`.
+    ///
+    /// The bag is read as the ENGINE value it is, never through
+    /// [`Value::to_json`]. That projection turns a non-finite number into
+    /// `null`, and `null` is falsy where `Infinity` is not: a
+    /// `charAsNumber` of `Infinity` is true in the canonical runtime and
+    /// would have read as false here, and an `enumTag` of `Infinity`
+    /// names the key `Infinity` there and would have read as unset here.
+    ///
+    /// The conversion is LOSSLESS for a string, the empty one included,
+    /// so that `from_value(&options.to_value())` returns the options it
+    /// was given. `tag` applies the canonical `|| null` filter at the
+    /// point of use instead.
     pub fn from_value(value: &Value) -> Self {
-        // Every option number is an engine `f64`, so a whole one arrives
-        // as `123.0` where JavaScript names the same option `123`. The
-        // same restoration the grammar document needs puts it back.
-        let bag = integral_numbers(value.to_json());
-        let field = |name: &str| bag.as_object().and_then(|fields| fields.get(name));
+        let field = |name: &str| match value {
+            Value::Object(fields) => fields.get(name),
+            Value::MapRef(map) => map.value.get(name),
+            _ => None,
+        };
         ZonOptions {
             char_as_number: field("charAsNumber").is_some_and(truthy),
-            enum_tag: field("enumTag").filter(|tag| truthy(tag)).map(key_of),
+            enum_tag: field("enumTag").and_then(tag_of),
         }
     }
 
@@ -224,32 +236,64 @@ impl ZonOptions {
 }
 
 /// JavaScript truthiness, which is how the canonical plugin reads an
-/// option bag: `false`, `null`, `0`, `-0`, `NaN` (which arrives as
-/// `null`, since JSON has no NaN) and `""` are false, and every other
-/// value, an empty array or object included, is true.
-fn truthy(value: &serde_json::Value) -> bool {
+/// option bag: `false`, `null`, `undefined`, `0`, `-0`, `NaN` and `""`
+/// are false, and every other value, `Infinity` and an empty array or
+/// object included, is true.
+fn truthy(value: &Value) -> bool {
     match value {
-        serde_json::Value::Null => false,
-        serde_json::Value::Bool(flag) => *flag,
-        serde_json::Value::Number(number) => {
-            number.as_f64().is_some_and(|n| n != 0.0 && !n.is_nan())
-        }
-        serde_json::Value::String(text) => !text.is_empty(),
+        Value::Undefined | Value::Null => false,
+        Value::Bool(flag) => *flag,
+        Value::Number(number) => *number != 0.0 && !number.is_nan(),
+        Value::String(text) => !text.is_empty(),
+        Value::Text(text) => !text.string.is_empty(),
         _ => true,
+    }
+}
+
+/// The `enumTag` option as this port's `Option<String>`.
+///
+/// A string is kept VERBATIM, an empty one included: the conversion
+/// layer is lossless and the semantic filter belongs at the point of
+/// use, which is [`ZonOptions::tag`]. Anything else is outside the
+/// option's declared `null | string`, and the canonical
+/// `options.enumTag || null` has already discarded a falsy one before it
+/// can become a computed property key, so a falsy one is unset here too.
+fn tag_of(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => Some(text.clone()),
+        Value::Text(text) => Some(text.string.clone()),
+        other if truthy(other) => Some(key_of(other)),
+        _ => None,
     }
 }
 
 /// A truthy `enumTag` as the key it names. The option's type is
 /// `null | string`, and a string is itself; the canonical plugin uses
-/// whatever else it is given as a computed property key, which stringifies
-/// it. A boolean and a number come out the same as there, measured. An
-/// ARRAY or an OBJECT, further outside the option's type still, keeps its
-/// JSON spelling here rather than taking the `Array.prototype.toString`
-/// and `[object Object]` of JavaScript, which `DIVERGENCE.md` records.
-fn key_of(value: &serde_json::Value) -> String {
+/// whatever else it is given as a computed property key, which
+/// stringifies it. A boolean spells itself, and a number spells itself as
+/// `Number::toString` does, which is neither Rust's shortest form nor
+/// serde_json's: `10000000000000000` is written out in full and `1e21`
+/// is not. An ARRAY or an OBJECT, further outside the option's type
+/// still, keeps its JSON spelling here rather than taking the
+/// `Array.prototype.toString` and `[object Object]` of JavaScript, which
+/// `DIVERGENCE.md` records, along with the `null` a non-finite element
+/// of one becomes on the way through `to_json`.
+fn key_of(value: &Value) -> String {
     match value {
-        serde_json::Value::String(text) => text.clone(),
-        other => other.to_string(),
+        Value::String(text) => text.clone(),
+        Value::Text(text) => text.string.clone(),
+        Value::Number(number) => number::js_number_to_string(*number),
+        Value::Bool(flag) => flag.to_string(),
+        // Neither reaches here through `tag_of`, which discards a falsy
+        // value first, as `options.enumTag || null` does. They are the
+        // spellings JavaScript would use if one ever did.
+        Value::Null => "null".to_string(),
+        Value::Undefined => "undefined".to_string(),
+        // A container, where this port stops matching anyway. Every
+        // option number is an engine `f64`, so `1` inside one arrives as
+        // `1.0`; the same restoration the grammar document needs puts
+        // the integer spelling back.
+        other => integral_numbers(other.to_json()).to_string(),
     }
 }
 

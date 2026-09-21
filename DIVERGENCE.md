@@ -141,6 +141,7 @@ rows there, after which this port matches with no change. Pinned by
 | `1e99999999999999999999` | `Infinity` | `ERROR:zon_number` | `Infinity` |
 | `1e400` | `Infinity` | `Infinity` | `Infinity` |
 | `0x1p-99999999999999999999` | `0` | `ERROR:zon_number` | `0` |
+| `0x1p99999999999999999999` | `Infinity` | `ERROR:zon_number` | `Infinity` |
 
 **All three differ, and none matches another.** The canonical runtime
 reads the exponent with `parseInt` and then spells it back into the
@@ -159,18 +160,32 @@ with the canonical runtime at both ends, where the Go port rejects it.
 
 Owned by the canonical TypeScript, where the behaviour is an artifact of
 the `parseInt` round trip rather than a decision. Pinned by
-`an_absurd_decimal_exponent_saturates`.
+`an_absurd_decimal_exponent_saturates`, which asserts EVERY row of the
+table: the two 21-digit exponents, the 20-digit one, `1e400`, and both
+hexadecimal rows. It previously asserted only the first three rows, so a
+regression on `1e400` or on either hexadecimal row would have left the
+suite green while this table still claimed the entry was pinned.
 
 ## An option outside its declared type
 
 | options | TypeScript | Go | Rust |
 |---|---|---|---|
 | `{"enumTag":"$e"}` | `{"k":{"$e":"red"}}` | the same | the same |
+| `{"enumTag":""}` | `{"k":"red"}` | the same | the same |
 | `{"enumTag":123}` | `{"k":{"123":"red"}}` | `{"k":"red"}` | `{"k":{"123":"red"}}` |
 | `{"enumTag":1.5}` | `{"k":{"1.5":"red"}}` | `{"k":"red"}` | `{"k":{"1.5":"red"}}` |
 | `{"enumTag":true}` | `{"k":{"true":"red"}}` | `{"k":"red"}` | `{"k":{"true":"red"}}` |
+| `{"enumTag":10000000000000000}` | `{"k":{"10000000000000000":"red"}}` | `{"k":"red"}` | as TypeScript |
+| `{"enumTag":1e21}` | `{"k":{"1e+21":"red"}}` | `{"k":"red"}` | as TypeScript |
+| `{"enumTag":0.000001}` | `{"k":{"0.000001":"red"}}` | `{"k":"red"}` | as TypeScript |
+| `{"enumTag":Infinity}` | `{"k":{"Infinity":"red"}}` | `{"k":"red"}` | as TypeScript |
+| `{"enumTag":-Infinity}` | `{"k":{"-Infinity":"red"}}` | `{"k":"red"}` | as TypeScript |
+| `{"enumTag":NaN}` | `{"k":"red"}` | the same | the same |
 | `{"enumTag":[1,2]}` | `{"k":{"1,2":"red"}}` | `{"k":"red"}` | `{"k":{"[1,2]":"red"}}` |
+| `{"enumTag":[]}` | `{"k":{"":"red"}}` | `{"k":"red"}` | `{"k":{"[]":"red"}}` |
 | `{"enumTag":{"a":1}}` | `{"k":{"[object Object]":"red"}}` | `{"k":"red"}` | `{"k":{"{\"a\":1}":"red"}}` |
+| `{"enumTag":{}}` | `{"k":{"[object Object]":"red"}}` | `{"k":"red"}` | `{"k":{"{}":"red"}}` |
+| `{"enumTag":[Infinity]}` | `{"k":{"Infinity":"red"}}` | `{"k":"red"}` | `{"k":{"[null]":"red"}}` |
 
 The input is `.{ .k = .red }` in every row.
 
@@ -180,22 +195,38 @@ The input is `.{ .k = .red }` in every row.
 | `{"charAsNumber":1}` | `65` | `"A"` | `65` |
 | `{"charAsNumber":"yes"}` | `65` | `"A"` | `65` |
 | `{"charAsNumber":0}` | `"A"` | the same | the same |
+| `{"charAsNumber":Infinity}` | `65` | `"A"` | `65` |
+| `{"charAsNumber":-Infinity}` | `65` | `"A"` | `65` |
+| `{"charAsNumber":NaN}` | `"A"` | the same | the same |
 | `{"charAsNumber":true,"enumTag":false}` | `65` | the same | the same |
 
-The input is `'A'` in every row of the second table.
+The input is `'A'` in every row of the second table. `Infinity` and
+`NaN` have no JSON spelling, so those bags were supplied as host
+numbers: a JavaScript number in TypeScript, a `float64` in Go, a
+`tabnas::Value::Number` in Rust.
 
 **Bounded, and outside the option's type.** `enumTag` is declared
 `null | string` in all three runtimes. The canonical runtime uses
 whatever it is given as a computed property key, which stringifies it;
 the Rust port reads the option bag field by field and by JavaScript
-truthiness, so a number and a boolean name the same key there, measured
-above. An ARRAY or an OBJECT keeps its JSON spelling in Rust rather than
-taking `Array.prototype.toString` or `[object Object]`, which are
-JavaScript object semantics rather than a value spelling. The Go port
-asserts each option to its Go type instead: a non-string tag and a
-non-boolean `charAsNumber` both read as unset, so the Go port differs
-from the canonical runtime in four rows of the first table and two of
-the second.
+truthiness, so a boolean names the same key there, and so does a NUMBER,
+in every spelling `Number::toString` gives one: the digits written out
+to `10000000000000000`, exponent form from `1e21` and from `1e-7`, and
+`Infinity` or `-Infinity` for a non-finite one. The bag is read as the
+engine value it is, never through `Value::to_json`, which renders a
+non-finite number as `null` and would make a truthiness test see
+something the canonical runtime never saw.
+
+An ARRAY or an OBJECT keeps its JSON spelling in Rust rather than taking
+`Array.prototype.toString` or `[object Object]`, which are JavaScript
+object semantics rather than a value spelling. An EMPTY array or object
+is truthy in JavaScript, so the tag is SET in both TypeScript and Rust
+and only the key differs, where Go reads it as unset with the rest; a
+non-finite element of such a container has no JSON spelling and becomes
+`null` in the one Rust writes, which the last row measures. The Go port asserts each option to its Go type
+instead: a non-string tag and a non-boolean `charAsNumber` both read as
+unset, so the Go port differs from the canonical runtime in thirteen rows
+of the first table and four of the second.
 
 The last row of the second table is the bag that motivated reading the
 bag field by field at all. Deserializing it as a whole failed at
@@ -208,7 +239,16 @@ only by reimplementing `Array.prototype.toString` and
 `charAsNumber` rows are owned by the Go port, where the repair is
 JavaScript truthiness in `toBool`.
 
-Pinned by `an_option_bag_field_is_read_on_its_own`, which asserts every
-row of both tables ON THE RUST SIDE ONLY. The TypeScript and Go columns
-above were measured, not pinned: no test in this repository fails if
-either of those runtimes changes.
+Pinned ON THE RUST SIDE ONLY by three tests, which between them assert
+every row of both tables. `an_option_bag_field_is_read_on_its_own` takes
+the string, boolean, empty and container rows;
+`a_numeric_tag_names_the_key_javascript_names` takes the numeric ones,
+including the spellings either side of the `1e21` and `1e-7` boundaries;
+and `a_non_finite_option_is_read_before_the_json_projection` takes the
+`Infinity`, `-Infinity` and `NaN` rows of both tables. A fourth test,
+`the_option_conversion_pair_is_lossless`, asserts that `to_value` and
+`from_value` round-trip every valid typed value, the empty tag of the
+second row included: the conversion keeps the string and `tag` applies
+the canonical `|| null` filter at the point of use. The TypeScript and
+Go columns above were measured, not pinned: no test in this repository
+fails if either of those runtimes changes.

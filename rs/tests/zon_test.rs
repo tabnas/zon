@@ -8,6 +8,7 @@ mod common;
 
 use std::fs;
 
+use indexmap::IndexMap;
 use tabnas::Value;
 use tabnas_support::{load_spec_dir, SpecOptions};
 use tabnas_zon::{
@@ -21,6 +22,24 @@ fn with_options(char_as_number: bool, enum_tag: Option<&str>) -> ZonOptions {
         char_as_number,
         enum_tag: enum_tag.map(str::to_string),
     }
+}
+
+/// Parse `src` with a raw option bag, as a caller of `use_plugin` hands
+/// one over. The bag is an ENGINE value, so it can hold what JSON cannot:
+/// an infinity, a NaN, a negative zero.
+fn parse_bag_value(bag: Value, src: &str) -> String {
+    let mut parser = tabnas_jsonic::make();
+    parser
+        .use_plugin(plugin(), Some(bag))
+        .expect("the plugin installs");
+    json(&parser.parse(src).expect("parses"))
+}
+
+/// A one-field option bag holding an engine number.
+fn number_bag(name: &str, value: f64) -> Value {
+    let mut fields = IndexMap::new();
+    fields.insert(name.to_string(), Value::Number(value));
+    Value::object(fields)
 }
 
 fn number(src: &str) -> f64 {
@@ -559,6 +578,129 @@ fn a_long_integer_literal_parses_in_linear_time() {
     );
 }
 
+#[test]
+fn the_option_conversion_pair_is_lossless() {
+    // `to_value` and `from_value` are the public conversion between the
+    // typed options and the engine's bag, so every valid typed value has
+    // to survive the round trip. An EMPTY tag is a PRESENT option, not an
+    // absent one: the canonical `options.enumTag || null` is a SEMANTIC
+    // test at the point of use, which `tag` performs when the rewrap is
+    // wired, so the conversion must not perform it again and lose the
+    // string a caller recorded.
+    for options in [
+        ZonOptions::default(),
+        with_options(true, None),
+        with_options(false, Some("")),
+        with_options(true, Some("")),
+        with_options(false, Some("$enum")),
+        with_options(true, Some("$enum")),
+        // Whitespace and a quote are ordinary characters in a tag.
+        with_options(false, Some(" ")),
+        with_options(false, Some("a\"b")),
+    ] {
+        assert_eq!(
+            ZonOptions::from_value(&options.to_value()),
+            options,
+            "{options:?}"
+        );
+    }
+
+    // The semantics are unchanged at the point of use: an empty tag is
+    // still unset, as `options.enumTag || null` makes it, and a tag of
+    // one space is NOT empty and does name a key. Both measured against
+    // ts/src/zon.ts.
+    assert_eq!(
+        json(&parse_with(".{ .k = .red }", &with_options(false, Some(""))).unwrap()),
+        r#"{"k":"red"}"#
+    );
+    assert_eq!(
+        json(&parse_with(".{ .k = .red }", &with_options(false, Some(" "))).unwrap()),
+        r#"{"k":{" ":"red"}}"#
+    );
+    // `char_as_number` is a plain bool, so `false` and absent are the
+    // same option, as `!!options.charAsNumber` makes them.
+    assert_eq!(
+        parse_bag_value(Value::object(IndexMap::new()), "'A'"),
+        r#""A""#
+    );
+}
+
+#[test]
+fn a_numeric_tag_names_the_key_javascript_names() {
+    // The canonical plugin uses the option as a COMPUTED PROPERTY KEY,
+    // which spells a number with `Number::toString` (ECMA-262
+    // 6.1.6.1.20). That is neither Rust's shortest float form nor
+    // serde_json's: it writes `10000000000000000` out in full, switches
+    // to exponent form only at 1e21 and at 1e-7, and never leaves a
+    // trailing `.0`. Every expectation is `String(tag)` in node.
+    let tagged = |tag: f64| parse_bag_value(number_bag("enumTag", tag), ".{ .k = .red }");
+    for (tag, want) in [
+        (123.0, "123"),
+        (1.5, "1.5"),
+        (-1.5, "-1.5"),
+        (100.0, "100"),
+        (0.1, "0.1"),
+        (1e15, "1000000000000000"),
+        (9e15, "9000000000000000"),
+        (9007199254740992.0, "9007199254740992"),
+        (1e16, "10000000000000000"),
+        (1234567890123456800.0, "1234567890123456800"),
+        (1e20, "100000000000000000000"),
+        (1e21, "1e+21"),
+        (0.000001, "0.000001"),
+        (1e-7, "1e-7"),
+        (1e-10, "1e-10"),
+        (5e-324, "5e-324"),
+        (f64::MAX, "1.7976931348623157e+308"),
+    ] {
+        assert_eq!(
+            tagged(tag),
+            format!(r#"{{"k":{{"{want}":"red"}}}}"#),
+            "{tag:?}"
+        );
+    }
+    // A falsy number never reaches the computed key: `|| null` discards
+    // it first, in both runtimes.
+    for tag in [0.0, -0.0, f64::NAN] {
+        assert_eq!(tagged(tag), r#"{"k":"red"}"#, "{tag:?}");
+    }
+}
+
+#[test]
+fn a_non_finite_option_is_read_before_the_json_projection() {
+    // `Value::to_json` renders a non-finite number as `null`, and `null`
+    // is falsy where `Infinity` is not, so a truthiness or type test
+    // taken AFTER that projection sees something the canonical runtime
+    // never saw. The option bag is therefore read as the engine value it
+    // is. Measured against ts/src/zon.ts: `Infinity` is a truthy
+    // `charAsNumber` and names the key `Infinity` as a tag, `-Infinity`
+    // names `-Infinity`, and `NaN` is falsy for both.
+    assert_eq!(
+        parse_bag_value(number_bag("charAsNumber", f64::INFINITY), "'A'"),
+        "65"
+    );
+    assert_eq!(
+        parse_bag_value(number_bag("charAsNumber", f64::NEG_INFINITY), "'A'"),
+        "65"
+    );
+    assert_eq!(
+        parse_bag_value(number_bag("charAsNumber", f64::NAN), "'A'"),
+        r#""A""#
+    );
+    assert_eq!(
+        parse_bag_value(number_bag("enumTag", f64::INFINITY), ".{ .k = .red }"),
+        r#"{"k":{"Infinity":"red"}}"#
+    );
+    assert_eq!(
+        parse_bag_value(number_bag("enumTag", f64::NEG_INFINITY), ".{ .k = .red }"),
+        r#"{"k":{"-Infinity":"red"}}"#
+    );
+    assert_eq!(
+        parse_bag_value(number_bag("enumTag", f64::NAN), ".{ .k = .red }"),
+        r#"{"k":"red"}"#
+    );
+}
+
 // --- the divergences DIVERGENCE.md records ---------------------------------
 //
 // Each test below pins a MEASURED difference from the canonical
@@ -612,6 +754,13 @@ fn an_absurd_decimal_exponent_saturates() {
     // A 20-digit exponent is inside the saturation and agrees with
     // TypeScript exactly.
     assert_eq!(number("1e99999999999999999999"), f64::INFINITY);
+    // So does an ordinary out-of-range exponent, which all three
+    // runtimes answer with an infinity.
+    assert_eq!(number("1e400"), f64::INFINITY);
+    // The hexadecimal `p` form saturates the same way and agrees with
+    // TypeScript at both ends, where Go rejects it.
+    assert_eq!(number("0x1p-99999999999999999999"), 0.0);
+    assert_eq!(number("0x1p99999999999999999999"), f64::INFINITY);
 }
 
 #[test]
@@ -643,6 +792,13 @@ fn an_option_bag_field_is_read_on_its_own() {
     assert_eq!(parse_bag(r#"{"charAsNumber":"yes"}"#, "'A'"), "65");
     assert_eq!(parse_bag(r#"{"charAsNumber":null}"#, "'A'"), r#""A""#);
     assert_eq!(parse_bag(r#"{"charAsNumber":0}"#, "'A'"), r#""A""#);
+    // A plain boolean and a plain string tag: the first row of each
+    // table in DIVERGENCE.md, where all three runtimes agree.
+    assert_eq!(parse_bag(r#"{"charAsNumber":true}"#, "'A'"), "65");
+    assert_eq!(
+        parse_bag(r#"{"enumTag":"$e"}"#, ".{ .k = .red }"),
+        r#"{"k":{"$e":"red"}}"#
+    );
     // An empty or falsy tag means unset; a non-string one is the key it
     // stringifies to, as a computed property key is.
     assert_eq!(
@@ -671,6 +827,34 @@ fn an_option_bag_field_is_read_on_its_own() {
     assert_eq!(
         parse_bag(r#"{"enumTag":{"a":1}}"#, ".{ .k = .red }"),
         r#"{"k":{"{\"a\":1}":"red"}}"#
+    );
+    // An EMPTY array or object is truthy in JavaScript too, so the tag
+    // is SET in both runtimes and only the key differs: TypeScript names
+    // `""` and `[object Object]` (DIVERGENCE.md).
+    assert_eq!(
+        parse_bag(r#"{"enumTag":[]}"#, ".{ .k = .red }"),
+        r#"{"k":{"[]":"red"}}"#
+    );
+    assert_eq!(
+        parse_bag(r#"{"enumTag":{}}"#, ".{ .k = .red }"),
+        r#"{"k":{"{}":"red"}}"#
+    );
+    // A non-finite element of such a container has no JSON spelling and
+    // becomes `null` in the one this port writes, where TypeScript joins
+    // the element as `Infinity`.
+    assert_eq!(
+        parse_bag_value(
+            {
+                let mut fields = IndexMap::new();
+                fields.insert(
+                    "enumTag".to_string(),
+                    Value::array(vec![Value::Number(f64::INFINITY)]),
+                );
+                Value::object(fields)
+            },
+            ".{ .k = .red }"
+        ),
+        r#"{"k":{"[null]":"red"}}"#
     );
 
     // An unknown field is still ignored, and the typed round trip holds.

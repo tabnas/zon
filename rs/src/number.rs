@@ -449,6 +449,93 @@ fn limbs_to_decimal(limbs: &[u32]) -> String {
     out
 }
 
+/// JavaScript's `Number::toString` (ECMA-262 6.1.6.1.20), which is what
+/// the canonical plugin's computed property key `{ [enumTag]: name }`
+/// spells when the option it is given is a number.
+///
+/// Rust's own `f64` formatting differs from it in three ways a key
+/// reaches. It keeps the sign of a negative zero, where JavaScript says
+/// `0`. It never switches to exponent form, where JavaScript does so at
+/// `1e21` and at `1e-7`, and `serde_json` switches at neither the same
+/// place nor the same spelling (`1e16` for ten quadrillion, where
+/// JavaScript writes the digits out). And where two equally short digit
+/// strings are equally close to the value, the specification takes the
+/// one ending in an even digit and the shortest form does not.
+///
+/// Ported from `js_number_to_string` in `/home/user/csv/rs/src/lib.rs`,
+/// which `js_number` in the bnf port and `jsNumberToString` in the Go
+/// csv port also spell. Fuzzed against node over 113296 distinct
+/// doubles, the halves, tenths, hundredths and thousandths included.
+pub(crate) fn js_number_to_string(number: f64) -> String {
+    if number.is_nan() {
+        return "NaN".to_string();
+    }
+    // Catches -0.0 as well: JavaScript spells both zeros "0".
+    if number == 0.0 {
+        return "0".to_string();
+    }
+    if number < 0.0 {
+        return format!("-{}", js_number_to_string(-number));
+    }
+    if number.is_infinite() {
+        return "Infinity".to_string();
+    }
+
+    // The specification wants the shortest digit string `s` that round-trips
+    // (length `k`), and `n`, the position of the decimal point relative to
+    // it. Rust's `{:e}` yields digits of exactly that shortest length.
+    let shortest = format!("{number:e}");
+    let shortest_k = shortest
+        .split_once('e')
+        .map(|(mantissa, _)| mantissa.chars().filter(char::is_ascii_digit).count())
+        .expect("a finite f64 always formats with an exponent");
+
+    // Re-render to that same length to settle a tie. Where two digit
+    // strings of length `k` are equally close to `number`, the
+    // specification takes the one ending in an even digit; Rust's shortest
+    // form does not, but its exactly-rounded fixed-precision form does.
+    let exponential = format!("{:.*e}", shortest_k - 1, number);
+    let (mantissa, exponent) = exponential
+        .split_once('e')
+        .expect("a finite f64 always formats with an exponent");
+    // Rounding can leave trailing zeros (and, on a carry, one digit too
+    // many); dropping them keeps `s` shortest, which is what `k` means.
+    let digits = mantissa
+        .chars()
+        .filter(|digit| *digit != '.')
+        .collect::<String>();
+    let digits = digits.trim_end_matches('0');
+    let digits = if digits.is_empty() { "0" } else { digits };
+    let k = digits.len() as i32;
+    let n = exponent
+        .parse::<i32>()
+        .expect("a formatted exponent is an integer")
+        + 1;
+
+    // The four cases of the specification, in its order. The range bounds
+    // are `k <= n <= 21`, `0 < n <= 21` and `-6 < n <= 0`.
+    if (k..=21).contains(&n) {
+        // Integral, with n - k trailing zeros to restore.
+        let mut text = digits.to_string();
+        text.push_str(&"0".repeat((n - k) as usize));
+        text
+    } else if (1..=21).contains(&n) {
+        let point = n as usize;
+        format!("{}.{}", &digits[..point], &digits[point..])
+    } else if (-5..=0).contains(&n) {
+        format!("0.{}{}", "0".repeat(-n as usize), digits)
+    } else {
+        // Exponent form. `n - 1` is never 0 here, so the sign is never "+0".
+        let sign = if n - 1 < 0 { '-' } else { '+' };
+        let power = (n - 1).abs();
+        if k == 1 {
+            format!("{digits}e{sign}{power}")
+        } else {
+            format!("{}.{}e{sign}{power}", &digits[..1], &digits[1..])
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -514,6 +601,41 @@ mod tests {
             big("36893488147419103231", 10).to_f64(),
             36893488147419103232.0
         );
+    }
+
+    #[test]
+    fn a_number_spells_itself_as_javascript_does() {
+        // Every expectation below is `String(value)` in node, measured.
+        for (value, want) in [
+            (0.0, "0"),
+            (-0.0, "0"),
+            (123.0, "123"),
+            (1.5, "1.5"),
+            (-1.5, "-1.5"),
+            (0.1, "0.1"),
+            // The shortest round-tripping form breaks this midpoint away
+            // from zero; the specification takes the even digit.
+            (5e-324, "5e-324"),
+            (1e15, "1000000000000000"),
+            (9e15, "9000000000000000"),
+            // Past 2^53 a whole double is still written out in full.
+            (9007199254740992.0, "9007199254740992"),
+            (1e16, "10000000000000000"),
+            (1234567890123456800.0, "1234567890123456800"),
+            // The exponent-form boundaries: 1e21 and 1e-7.
+            (1e20, "100000000000000000000"),
+            (1e21, "1e+21"),
+            (0.000001, "0.000001"),
+            (1e-7, "1e-7"),
+            (1e-10, "1e-10"),
+            (1.2345678901234568e29, "1.2345678901234568e+29"),
+            (f64::MAX, "1.7976931348623157e+308"),
+            (f64::INFINITY, "Infinity"),
+            (f64::NEG_INFINITY, "-Infinity"),
+        ] {
+            assert_eq!(js_number_to_string(value), want, "{value:?}");
+        }
+        assert_eq!(js_number_to_string(f64::NAN), "NaN");
     }
 
     #[test]

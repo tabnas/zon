@@ -141,10 +141,13 @@ language has no type for, and the handful of inputs measured in
   `enum_tag` as typed fields; `to_value` and `from_value` convert to and
   from the option bag `use_plugin` takes, with the same defaults.
   `from_value` reads each field on its own and by JavaScript truthiness,
-  as the canonical plugin does (an empty `enum_tag` means unset, as in
-  Go). An array or an object as `enumTag`, outside the option's declared
-  type in every runtime, keeps its JSON spelling here rather than the
-  JavaScript one.
+  as the canonical plugin does, and reads the bag as the engine value it
+  is rather than through `to_json`, which renders a non-finite number as
+  `null`. The conversion is lossless: an empty `enum_tag` survives the
+  round trip, and `tag` treats it as unset at the point of use, exactly
+  as `options.enumTag || null` does. An array or an object as
+  `enumTag`, outside the option's declared type in every runtime, keeps
+  its JSON spelling here rather than the JavaScript one.
 - **A big integer is an object.** An integer literal whose exact value no
   IEEE-754 double holds is a `bigint` in TypeScript and a `*big.Int` in
   Go. The engine's `Value` has no such variant, so this crate returns
