@@ -10,7 +10,7 @@
 A grammar plugin that teaches the [Tabnas](https://github.com/tabnas/parser)
 parser to read [Zig Object Notation (ZON)](https://ziglang.org/documentation/master/#ZON),
 the anonymous-struct data format used for `build.zig.zon` manifests.
-Available for both TypeScript and Go, built on the same grammar.
+Available for TypeScript, Go and Rust, built on the same grammar.
 
 Docs, guides, the error reference and the playground: **[tabnas.dev](https://tabnas.dev)**.
 
@@ -37,6 +37,10 @@ npm install @tabnas/parser @tabnas/jsonic @tabnas/zon
 go get github.com/tabnas/zon/go@latest
 ```
 
+The Rust crate, `tabnas-zon` in [`rs/`](rs/), is consumed as a sibling
+checkout beside `tabnas/parser`, `tabnas/json` and `tabnas/jsonic`; see
+[`rs/README.md`](rs/README.md).
+
 ## One tiny example
 
 **TypeScript.** The plugin layers onto a Tabnas engine:
@@ -61,6 +65,13 @@ result, _ := tabnaszon.Parse(`.{ .name = "Alice", .age = 30 }`)
 // map[string]any{"name": "Alice", "age": float64(30)}
 ```
 
+**Rust.** `tabnas_zon::parse` reuses one shared instance:
+
+```rust
+let value = tabnas_zon::parse(".{ .name = \"Alice\", .age = 30 }")?;
+// {"name":"Alice","age":30}
+```
+
 ## Conformance
 
 `@tabnas/zon` accepts exactly the documents **ziglang/zig 0.16.0** accepts,
@@ -74,11 +85,12 @@ and has it rule on every ZON document in the zig tree.
 | Every `.zon` file in the zig tree, plus every snippet in `lib/std/zon/parse.zig` | 222 | 178 / 178 | 44 / 44 |
 | Leniency probes (`test/strictness/inputs.txt`), judged by the same oracle | 117 | 45 / 45 | 72 / 72 |
 
-Identical in both runtimes. Two documented deviations, both about
+Identical in all three runtimes. Two documented deviations, both about
 representing a value that Zig resolves against a target type:
 
 - an integer literal too large for an exact IEEE-754 double is returned as a
-  `bigint` (TypeScript) / `*big.Int` (Go) rather than silently rounded;
+  `bigint` (TypeScript) / `*big.Int` (Go) / a `{ "$big": "<digits>" }`
+  object (Rust) rather than silently rounded;
 - `.{}` parses as the empty **list**, since an empty anonymous literal is both
   an empty struct and an empty tuple until a type says otherwise.
 
@@ -97,15 +109,16 @@ framework: one file per quadrant, per language:
 | **Concepts** (explanation) | [ts/doc/concepts.md](ts/doc/concepts.md) | [go/doc/concepts.md](go/doc/concepts.md) |
 
 Per-language hubs: [`ts/README.md`](ts/README.md),
-[`go/README.md`](go/README.md).
+[`go/README.md`](go/README.md), [`rs/README.md`](rs/README.md) (the Rust
+crate has its front page only; the docs above describe the same grammar).
 
 ## Grammar diagram
 
 The grammar is defined once in the top-level
-[`zon-grammar.jsonic`](zon-grammar.jsonic) and embedded into both
-implementations, TypeScript ([`ts/src/zon.ts`](ts/src/zon.ts)) and Go
-([`go/zon.go`](go/zon.go)), by [`ts/embed-grammar.js`](ts/embed-grammar.js)
-during the TypeScript build. Edit the grammar there, not in the
+[`zon-grammar.jsonic`](zon-grammar.jsonic) and embedded into all three
+implementations, TypeScript ([`ts/src/zon.ts`](ts/src/zon.ts)), Go
+([`go/zon.go`](go/zon.go)) and Rust ([`rs/src/lib.rs`](rs/src/lib.rs)), by
+[`ts/embed-grammar.js`](ts/embed-grammar.js) during the TypeScript build. Edit the grammar there, not in the
 generated sources.
 
 As a railroad/syntax diagram, generated from the live grammar with

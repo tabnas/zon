@@ -1,29 +1,29 @@
-# Build, test and publish both the TypeScript (ts/) and Go (go/)
-# implementations. ts/ is canonical; go/ tracks it.
+# Build, test and publish the TypeScript (ts/), Go (go/) and Rust (rs/)
+# implementations. ts/ is canonical; go/ and rs/ track it.
 #
 # Local build/test resolve the unpublished @tabnas siblings via the
 # repo-set go.work + node_modules symlinks (admin/scripts/link.sh).
 
-.PHONY: all build test clean build-ts build-go test-ts test-go corpus \
-        clean-ts clean-go publish-ts publish-go tags-go reset \
+.PHONY: all build test clean build-ts build-go build-rs test-ts test-go test-rs corpus \
+        clean-ts clean-go clean-rs publish-ts publish-go version-rs tags-go reset \
         prose prose-counts
 
 all: build test
 
 # --- Conformance corpora ---
 # Generated from the pinned ziglang/zig 0.16.0 release; .gitignore'd, never
-# committed. Both runtimes generate them THEMSELVES before grading — the ts/
-# `pretest` hook and go/'s TestMain — so this target is only for building them
-# by hand. It is deliberately not a prerequisite of `make test`. When a corpus
+# committed. All three runtimes generate them THEMSELVES before grading — the
+# ts/ `pretest` hook, go/'s TestMain and rs/'s tests/zigzon_test.rs — so this
+# target is only for building them by hand. It is deliberately not a prerequisite of `make test`. When a corpus
 # is missing the conformance suites fail; they never skip.
 corpus:
 	bash scripts/fetch-zigzon.sh
 
-build: build-ts build-go
+build: build-ts build-go build-rs
 
-test: test-ts test-go
+test: test-ts test-go test-rs
 
-clean: clean-ts clean-go
+clean: clean-ts clean-go clean-rs
 
 # --- TypeScript (package in ts/) ---
 build-ts:
@@ -61,6 +61,35 @@ publish-go: test-go
 	git tag go/v$(V)
 	git push origin main go/v$(V)
 	@command -v gh >/dev/null 2>&1 && gh release create go/v$(V) --title "go/v$(V)" --notes "Go module release v$(V)" || true
+
+# --- Rust (crate in rs/) ---
+build-rs:
+	cd rs && cargo build --all-targets
+
+test-rs:
+	cd rs && cargo test --all-targets && cargo test --doc
+	cd rs && cargo clippy --all-targets --all-features -- -D warnings
+
+clean-rs:
+	cd rs && cargo clean
+
+# Set the Rust crate version: make version-rs V=x.y.z
+#
+# Bumps BOTH Rust version sites, plus the crate's own entry in
+# rs/Cargo.lock, which rs/tests/version_test.rs holds to
+# ts/package.json. A release that bumps the TS and Go sites and forgets
+# these fails that test.
+#
+# Unlike publish-go it neither commits nor tags. There is nothing to
+# release: the crate depends on the engine and the jsonic grammar by path,
+# and crates.io does not accept a path dependency, so tabnas-zon is not
+# published. Only the constants need to stay in step.
+version-rs:
+	@test -n "$(V)" || (echo "Usage: make version-rs V=x.y.z" && exit 1)
+	sed -i.bak 's/^version = ".*"/version = "$(V)"/' rs/Cargo.toml
+	sed -i.bak 's/^pub const VERSION: &str = ".*";/pub const VERSION: \&str = "$(V)";/' rs/src/lib.rs
+	rm -f rs/Cargo.toml.bak rs/src/lib.rs.bak
+	cd rs && cargo metadata --format-version 1 --offline >/dev/null
 
 # List published Go module tags, newest first.
 tags-go:

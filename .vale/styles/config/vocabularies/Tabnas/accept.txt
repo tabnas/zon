@@ -12,11 +12,13 @@
 [Ee]num
 [Jj]sonic
 [Ll]exes
+[Ll]ockfile
 [Ll]ookahead
 [Mm]atchers
 [Nn]pm
 [Pp]arse
 [Pp]repended
+[Pp]repends
 [Rr]epo
 [Rr]untimes
 [Ss]uperset

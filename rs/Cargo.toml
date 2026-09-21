@@ -1,0 +1,37 @@
+[package]
+name = "tabnas-zon"
+version = "0.5.6"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT"
+description = "The Zig Object Notation (ZON) grammar plugin for the tabnas parsing engine"
+repository = "https://github.com/tabnas/zon"
+
+[lib]
+name = "tabnas_zon"
+path = "src/lib.rs"
+
+[dependencies]
+# The engine and the relaxed-JSON grammar this plugin layers on are
+# consumed as SIBLING CHECKOUTS, the standard tabnas development model:
+# clone https://github.com/tabnas/parser, https://github.com/tabnas/json
+# and https://github.com/tabnas/jsonic next to this repo. None is
+# published, so there is no registry version to fall back on. tabnas-json
+# is not named here: tabnas-jsonic installs it, and its checkout is only
+# needed because tabnas-jsonic takes it by path.
+tabnas = { path = "../../parser/rs" }
+tabnas-jsonic = { path = "../../jsonic/rs" }
+indexmap = "2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["preserve_order"] }
+
+[dev-dependencies]
+# The shared fixture loader and runner: one loader in three languages, so
+# the rows mean the same thing in every runtime.
+tabnas-support = { path = "../../support/rs", features = ["serde_json"] }
+# The zig reference corpora spell a large float as its exact integer
+# digits (80 of them for `12_3.0E+77`). serde_json parses a long number
+# with best-effort precision by default and lands one ulp off, where
+# Go's strconv and JavaScript's JSON.parse are exact; `float_roundtrip`
+# makes the expected value the double the oracle meant.
+serde_json = { version = "1.0", features = ["preserve_order", "float_roundtrip"] }
