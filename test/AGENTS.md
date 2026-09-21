@@ -1,8 +1,9 @@
 # Agents Guide — shared spec fixtures
 
-`spec/*.tsv` holds the cross-runtime conformance fixtures. Both runtimes
-auto-discover and run **every** file in this directory, so a change here
-affects TypeScript and Go together — edit with that in mind.
+`spec/*.tsv` holds the cross-runtime conformance fixtures. All three
+runtimes auto-discover and run **every** file in this directory, so a
+change here affects TypeScript, Go and Rust together — edit with that in
+mind.
 
 `zigzon/` and `strictness/` hold the generated zig-reference corpora. What is
 tracked there is the instrument, never the corpus: `zigzon/tools/` (the
@@ -13,9 +14,10 @@ ziglang/zig 0.16.0 release by `scripts/fetch-zigzon.sh`.
 ## The instrument's own rules
 
 - **The corpora are built automatically, not opt-in.** `pretest` in
-  `ts/package.json` and `TestMain` in `go/zigzon_test.go` both run
-  `scripts/fetch-zigzon.sh` before grading, so the suites run in CI as well
-  as locally. Do not remove either hook.
+  `ts/package.json`, `TestMain` in `go/zigzon_test.go` and the fetch guard
+  in `rs/tests/zigzon_test.rs` all run `scripts/fetch-zigzon.sh` before
+  grading, so the suites run in CI as well as locally. Do not remove any
+  of the hooks.
 - **A missing corpus is a FAILURE, not a skip.** The only skip permitted is
   the platform one: a host with no pinned zig oracle toolchain
   (anything but linux/macos on x86_64/aarch64) reports one explicit,
@@ -54,16 +56,17 @@ comparison.
 
 - TypeScript: `ts/test/parity.test.ts` — `makeRunner(...).dir(...)`.
 - Go: `go/parity_test.go` — `support.Runner{...}.Dir(t, dir)`.
+- Rust: `rs/tests/parity_test.rs` — `tabnas_support::Runner::new_with_row(...).dir(...)`.
 
-Both are a dozen lines holding only what is specific to zon: how to build
-the parser for a row's options. Everything else — finding `test/spec`,
-reading the file, decoding escapes, the `ERROR:` contract, the comparison,
-the `<file>:<line>` in a failure message — comes from
-[`@tabnas/support`](https://github.com/tabnas/support) and its Go half, so
-the two loaders cannot drift from each other either.
+All three are a dozen lines holding only what is specific to zon: how to
+build the parser for a row's options. Everything else — finding
+`test/spec`, reading the file, decoding escapes, the `ERROR:` contract,
+the comparison, the `<file>:<line>` in a failure message — comes from
+[`@tabnas/support`](https://github.com/tabnas/support) and its Go and Rust
+halves, so the loaders cannot drift from each other either.
 
-Both discover files by directory listing: adding a `.tsv` here runs it in
-both runtimes without touching either runner. An empty fixture, and a spec
+All three discover files by directory listing: adding a `.tsv` here runs
+it in every runtime without touching any runner. An empty fixture, and a spec
 directory with no fixtures in it, both **fail** — a runner that reports
 green having run nothing is indistinguishable from coverage that was never
 there.
@@ -73,10 +76,10 @@ there.
 - Prefer adding a fixture here over a one-off in-language assertion when a
   case is expressible as input → output. That is what keeps the two
   runtimes honest against each other.
-- What a fixture **cannot** express, because both runners compare after a
-  JSON round-trip: `bigint` / `*big.Int` values, `Infinity`, `NaN`, and the
-  `-0` / `0` distinction. Those live in `ts/test/zon.test.ts` and
-  `go/zon_test.go`, mirrored case for case.
+- What a fixture **cannot** express, because every runner compares after a
+  JSON round-trip: `bigint` / `*big.Int` / `$big` values, `Infinity`, `NaN`,
+  and the `-0` / `0` distinction. Those live in `ts/test/zon.test.ts`,
+  `go/zon_test.go` and `rs/tests/zon_test.rs`, mirrored case for case.
 - [`strict.tsv`](spec/strict.tsv) collects the inputs the Zig reference
   implementation REJECTS. Every verdict there came from the oracle in
   `scripts/fetch-zigzon.sh`, not from a judgement call — if you add a row,
@@ -84,5 +87,6 @@ there.
 - TypeScript is canonical. If the two runtimes disagree, the TS behaviour is
   the expected value — unless Go has exposed a genuine TS defect, in which
   case fix TS first and pin the corrected behaviour here.
-- A new fixture must pass in BOTH runtimes: run `go test ./...` (from `go/`)
-  and `npm test` (from `ts/`) before considering it done.
+- A new fixture must pass in ALL THREE runtimes: run `go test ./...` (from
+  `go/`), `npm test` (from `ts/`) and `cargo test --all-targets` (from
+  `rs/`) before considering it done.

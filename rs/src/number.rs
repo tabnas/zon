@@ -1,0 +1,439 @@
+/* Copyright (c) 2025-2026 Richard Rodger, MIT License */
+
+//! Zig numeric literals, as ZON defines them: the scanner behind the
+//! `zonNumber` lex matcher, and the small arbitrary-precision integer
+//! the exactness rule needs.
+//!
+//! The scanner is a line-for-line port of `scanZonNumber` in
+//! `ts/src/zon.ts`: decimal / `0x` / `0o` / `0b` integers with `_`
+//! separators between digits, decimal and hexadecimal floats (`1.5e3`,
+//! `0x1.8p1`, `0x103.70`), a lowercase base prefix, no leading zero, no
+//! `+`, and nothing alphanumeric left attached.
+//!
+//! The canonical runtime returns an integer whose exact value is not
+//! representable as an IEEE-754 double as a `bigint`. The engine's
+//! [`tabnas::Value`] has no big-integer variant, so [`BigUint`] holds the
+//! digits long enough to decide exactness and, when the double would
+//! lose precision, to render the decimal string the `$big` object carries
+//! (see `big_value` in the lexer module).
+
+/// One scanned unsigned literal.
+pub(crate) enum Scanned {
+    /// An integer literal, with its exact digits.
+    Int { end: usize, big: BigUint },
+    /// A float literal, already narrowed to a double.
+    Float { end: usize, value: f64 },
+}
+
+/// Scan one unsigned Zig numeric literal starting at `start`, which must
+/// be an ASCII digit. `Err(end)` spans the whole malformed literal, so the
+/// error can quote it rather than its first character.
+pub(crate) fn scan(src: &str, start: usize) -> Result<Scanned, usize> {
+    let bytes = src.as_bytes();
+    let mut i = start;
+    let mut base: u32 = 10;
+    let fail = || Err(token_end(src, start));
+
+    if bytes[i] == b'0' {
+        match bytes.get(i + 1).copied() {
+            Some(b'x') => {
+                base = 16;
+                i += 2;
+            }
+            Some(b'o') => {
+                base = 8;
+                i += 2;
+            }
+            Some(b'b') => {
+                base = 2;
+                i += 2;
+            }
+            // The base prefix must be lowercase.
+            Some(b'X' | b'O' | b'B') => return fail(),
+            // A leading zero.
+            Some(c) if c == b'_' || c.is_ascii_digit() => return fail(),
+            _ => {}
+        }
+    }
+
+    let (int_end, int_count, int_bad) = digit_run(bytes, i, base);
+    if int_bad {
+        return fail();
+    }
+    let int_text = src[i..int_end].replace('_', "");
+    i = int_end;
+
+    let mut is_float = false;
+    let mut frac_text = String::new();
+    if bytes.get(i) == Some(&b'.') {
+        let after = bytes.get(i + 1).copied();
+        let after_digit = after.map_or(-1, digit_val);
+        // A `.` only starts a fraction when a digit of this base (or, for
+        // hex, the `p` exponent) follows; otherwise it is a stray token and
+        // the number ends here: `1.` and `0.1.2` are rejected by the parser.
+        let starts_frac = (0 <= after_digit && (after_digit as u32) < base)
+            || (base == 16 && matches!(after, Some(b'p' | b'P')));
+        if starts_frac {
+            if base != 16 && base != 10 {
+                return fail(); // no floats in this base
+            }
+            is_float = true;
+            i += 1;
+            let (frac_end, _, frac_bad) = digit_run(bytes, i, base);
+            if frac_bad {
+                return fail();
+            }
+            frac_text = src[i..frac_end].replace('_', "");
+            i = frac_end;
+        }
+    }
+
+    let mut exp_val: i64 = 0;
+    let mut has_exp = false;
+    let exp_chars: &[u8] = match base {
+        16 => b"pP",
+        10 => b"eE",
+        _ => b"",
+    };
+    if bytes.get(i).is_some_and(|c| exp_chars.contains(c)) {
+        has_exp = true;
+        is_float = true;
+        i += 1;
+        let mut exp_sign: i64 = 1;
+        match bytes.get(i) {
+            Some(b'+') => i += 1,
+            Some(b'-') => {
+                exp_sign = -1;
+                i += 1;
+            }
+            _ => {}
+        }
+        let (exp_end, exp_count, exp_bad) = digit_run(bytes, i, 10);
+        if exp_bad || exp_count == 0 {
+            return fail();
+        }
+        // An exponent no double can survive is saturated rather than
+        // parsed: past a million either way the value is already
+        // infinity or zero.
+        let digits = src[i..exp_end].replace('_', "");
+        exp_val = exp_sign * digits.parse::<i64>().unwrap_or(1_000_000).min(1_000_000);
+        i = exp_end;
+    }
+
+    if int_count == 0 && frac_text.is_empty() {
+        return fail();
+    }
+
+    // Anything alphanumeric still attached is a digit invalid for this
+    // base.
+    if bytes.get(i).is_some_and(|&c| is_id_cont(c)) {
+        return fail();
+    }
+
+    let int_or_zero = if int_text.is_empty() { "0" } else { &int_text };
+
+    if is_float {
+        let value = if base == 16 {
+            // The mantissa, correctly rounded to a double, scaled by the
+            // power of two the exponent and the radix point call for: the
+            // arithmetic `Number(BigInt('0x' + digits)) * 2 ** e` of the
+            // canonical runtime.
+            let mantissa = BigUint::from_digits(&format!("{int_or_zero}{frac_text}"), 16);
+            let scale = exp_val - 4 * frac_text.len() as i64;
+            mantissa.to_f64() * pow2(scale)
+        } else {
+            let mut text = int_or_zero.to_string();
+            if !frac_text.is_empty() {
+                text.push('.');
+                text.push_str(&frac_text);
+            }
+            if has_exp {
+                text.push_str(&format!("e{exp_val}"));
+            }
+            // The text is digits, an optional fraction and an optional
+            // signed exponent, which always parses; an overflow is
+            // infinity, as it is in Zig.
+            text.parse::<f64>().unwrap_or(f64::NAN)
+        };
+        return Ok(Scanned::Float { end: i, value });
+    }
+
+    Ok(Scanned::Int {
+        end: i,
+        big: BigUint::from_digits(int_or_zero, base),
+    })
+}
+
+/// Scan a run of `base` digits with Zig's digit-separator rules: a `_`
+/// must sit directly between two digits (no leading, trailing, or
+/// repeated `_`). Returns the end index, the digit count, and whether the
+/// run was malformed.
+fn digit_run(bytes: &[u8], start: usize, base: u32) -> (usize, usize, bool) {
+    let mut i = start;
+    let mut count = 0;
+    let mut prev_digit = false;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if c == b'_' {
+            if !prev_digit {
+                return (i, count, true);
+            }
+            prev_digit = false;
+            i += 1;
+            continue;
+        }
+        let dv = digit_val(c);
+        if 0 <= dv && (dv as u32) < base {
+            count += 1;
+            prev_digit = true;
+            i += 1;
+            continue;
+        }
+        break;
+    }
+    if start < i && !prev_digit {
+        return (i, count, true);
+    }
+    (i, count, false)
+}
+
+/// The greedy extent of a malformed numeric token, so the error span
+/// covers the whole literal rather than its first character.
+fn token_end(src: &str, start: usize) -> usize {
+    let bytes = src.as_bytes();
+    let mut i = start;
+    while i < bytes.len() {
+        let attached = is_id_cont(bytes[i])
+            || (bytes[i] == b'.' && bytes.get(i + 1).is_some_and(|&c| is_id_cont(c)));
+        if !attached {
+            break;
+        }
+        i += 1;
+    }
+    i
+}
+
+pub(crate) fn is_id_start(c: u8) -> bool {
+    c.is_ascii_alphabetic() || c == b'_'
+}
+
+pub(crate) fn is_id_cont(c: u8) -> bool {
+    c.is_ascii_alphanumeric() || c == b'_'
+}
+
+/// The value of an ASCII digit in bases up to 16, or -1.
+pub(crate) fn digit_val(c: u8) -> i32 {
+    match c {
+        b'0'..=b'9' => i32::from(c - b'0'),
+        b'a'..=b'f' => i32::from(c - b'a') + 10,
+        b'A'..=b'F' => i32::from(c - b'A') + 10,
+        _ => -1,
+    }
+}
+
+/// Whether `text` is one or more hex digits.
+pub(crate) fn is_hex(text: &str) -> bool {
+    !text.is_empty() && text.bytes().all(|c| c.is_ascii_hexdigit())
+}
+
+/// Exactly `2^k` as a double, saturating: infinity above the largest
+/// exponent, the subnormals below the normal range, zero past them. The
+/// `Math.pow(2, k)` of the canonical runtime, without a rounding step.
+pub(crate) fn pow2(k: i64) -> f64 {
+    if k > 1023 {
+        f64::INFINITY
+    } else if k >= -1022 {
+        f64::from_bits(((k + 1023) as u64) << 52)
+    } else if k >= -1074 {
+        f64::from_bits(1u64 << (k + 1074))
+    } else {
+        0.0
+    }
+}
+
+/// An unsigned integer of any size: base 2^32 limbs, least significant
+/// first, with no zero limb on top (zero is no limbs at all). It does the
+/// three things the number matcher needs and nothing else.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BigUint {
+    limbs: Vec<u32>,
+}
+
+impl BigUint {
+    /// The integer the digit string denotes in `base`. Every character
+    /// must be a digit of that base; the scanner guarantees it.
+    pub(crate) fn from_digits(text: &str, base: u32) -> Self {
+        let mut value = BigUint { limbs: Vec::new() };
+        for c in text.bytes() {
+            let digit = digit_val(c);
+            debug_assert!(
+                0 <= digit && (digit as u32) < base,
+                "not a base-{base} digit: {c}"
+            );
+            value.mul_add(base, digit.max(0) as u32);
+        }
+        value
+    }
+
+    fn mul_add(&mut self, mul: u32, add: u32) {
+        let mut carry = u64::from(add);
+        for limb in &mut self.limbs {
+            let v = u64::from(*limb) * u64::from(mul) + carry;
+            *limb = v as u32;
+            carry = v >> 32;
+        }
+        if carry > 0 {
+            self.limbs.push(carry as u32);
+        }
+    }
+
+    pub(crate) fn is_zero(&self) -> bool {
+        self.limbs.is_empty()
+    }
+
+    /// The number of significant bits: zero for zero.
+    fn bit_length(&self) -> u64 {
+        match self.limbs.last() {
+            None => 0,
+            Some(top) => (self.limbs.len() as u64 - 1) * 32 + u64::from(32 - top.leading_zeros()),
+        }
+    }
+
+    fn bit(&self, index: u64) -> bool {
+        self.limbs
+            .get((index / 32) as usize)
+            .is_some_and(|limb| (limb >> (index % 32)) & 1 == 1)
+    }
+
+    fn trailing_zeros(&self) -> u64 {
+        for (index, limb) in self.limbs.iter().enumerate() {
+            if *limb != 0 {
+                return index as u64 * 32 + u64::from(limb.trailing_zeros());
+            }
+        }
+        0
+    }
+
+    /// Bits `from..from + count` as an integer, `count` at most 64.
+    fn bits_from(&self, from: u64, count: u32) -> u64 {
+        (0..count)
+            .filter(|k| self.bit(from + u64::from(*k)))
+            .fold(0u64, |acc, k| acc | (1u64 << k))
+    }
+
+    fn any_bit_below(&self, index: u64) -> bool {
+        (0..index).any(|k| self.bit(k))
+    }
+
+    /// The nearest double, rounding half to even: `Number(bigint)`.
+    pub(crate) fn to_f64(&self) -> f64 {
+        let length = self.bit_length();
+        if length <= 53 {
+            return self.bits_from(0, length as u32) as f64;
+        }
+        let shift = length - 53;
+        let mut mantissa = self.bits_from(shift, 53);
+        let half = self.bit(shift - 1);
+        let sticky = self.any_bit_below(shift - 1);
+        if half && (sticky || mantissa & 1 == 1) {
+            mantissa += 1;
+        }
+        (mantissa as f64) * pow2(shift as i64)
+    }
+
+    /// The double, when it is exact: `Number.isFinite(n) && BigInt(n) ===
+    /// big` in the canonical runtime. A value needs at most 53
+    /// significant bits and has to fit the exponent range.
+    pub(crate) fn to_f64_exact(&self) -> Option<f64> {
+        let length = self.bit_length();
+        if length > 1024 || length - self.trailing_zeros() > 53 {
+            return None;
+        }
+        Some(self.to_f64())
+    }
+
+    /// The decimal digits.
+    pub(crate) fn to_decimal(&self) -> String {
+        if self.is_zero() {
+            return "0".to_string();
+        }
+        const CHUNK: u64 = 1_000_000_000;
+        let mut limbs = self.limbs.clone();
+        let mut chunks: Vec<u32> = Vec::new();
+        while !limbs.is_empty() {
+            let mut remainder = 0u64;
+            for limb in limbs.iter_mut().rev() {
+                let v = (remainder << 32) | u64::from(*limb);
+                *limb = (v / CHUNK) as u32;
+                remainder = v % CHUNK;
+            }
+            while limbs.last() == Some(&0) {
+                limbs.pop();
+            }
+            chunks.push(remainder as u32);
+        }
+        let mut out = chunks.last().map_or_else(String::new, u32::to_string);
+        for chunk in chunks.iter().rev().skip(1) {
+            out.push_str(&format!("{chunk:09}"));
+        }
+        out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn big(text: &str, base: u32) -> BigUint {
+        BigUint::from_digits(text, base)
+    }
+
+    #[test]
+    fn decimal_round_trips_through_every_base() {
+        let want = "36893488147419103231"; // 2^65 - 1
+        assert_eq!(big(want, 10).to_decimal(), want);
+        assert_eq!(big("1ffffffffffffffff", 16).to_decimal(), want);
+        assert_eq!(big("3777777777777777777777", 8).to_decimal(), want);
+        assert_eq!(big(&"1".repeat(65), 2).to_decimal(), want);
+        assert_eq!(big("0", 10).to_decimal(), "0");
+        assert_eq!(big("000", 16).to_decimal(), "0");
+    }
+
+    #[test]
+    fn exactness_follows_the_53_bit_rule() {
+        assert_eq!(
+            big("9007199254740992", 10).to_f64_exact(),
+            Some(9007199254740992.0)
+        );
+        assert_eq!(big("9007199254740993", 10).to_f64_exact(), None);
+        assert_eq!(
+            big("18446744073709551616", 10).to_f64_exact(),
+            Some(18446744073709551616.0)
+        );
+        assert_eq!(big("36893488147419103231", 10).to_f64_exact(), None);
+        assert_eq!(big("0", 10).to_f64_exact(), Some(0.0));
+        assert_eq!(big(&"1".repeat(1030), 2).to_f64_exact(), None);
+    }
+
+    #[test]
+    fn rounding_is_half_to_even() {
+        // 2^53 + 1 sits exactly between two doubles and rounds to the
+        // even one, 2^53; 2^53 + 3 rounds up to 2^53 + 4.
+        assert_eq!(big("9007199254740993", 10).to_f64(), 9007199254740992.0);
+        assert_eq!(big("9007199254740995", 10).to_f64(), 9007199254740996.0);
+        assert_eq!(
+            big("36893488147419103231", 10).to_f64(),
+            36893488147419103232.0
+        );
+    }
+
+    #[test]
+    fn powers_of_two_saturate() {
+        assert_eq!(pow2(0), 1.0);
+        assert_eq!(pow2(-1), 0.5);
+        assert_eq!(pow2(1023), f64::MAX / (2.0 - f64::EPSILON));
+        assert_eq!(pow2(1024), f64::INFINITY);
+        assert_eq!(pow2(-1074), 5e-324);
+        assert_eq!(pow2(-1075), 0.0);
+    }
+}
