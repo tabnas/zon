@@ -198,12 +198,58 @@ impl ZonOptions {
     /// default and an unknown field is ignored, as the canonical plugin
     /// reads `options.charAsNumber` and `options.enumTag` and nothing
     /// else.
+    ///
+    /// Each field is read ON ITS OWN, and by JavaScript truthiness, which
+    /// is what `!!options.charAsNumber` and `options.enumTag || null`
+    /// mean in `ts/src/zon.ts`. Deserializing the bag as a whole instead
+    /// let one ill-typed field discard a well-typed one: the bag
+    /// `{"charAsNumber": true, "enumTag": false}` failed to deserialize
+    /// at `enumTag` and fell back to the DEFAULTS, so `'A'` parsed as
+    /// `"A"` where both other runtimes give `65`.
     pub fn from_value(value: &Value) -> Self {
-        serde_json::from_value(value.to_json()).unwrap_or_default()
+        // Every option number is an engine `f64`, so a whole one arrives
+        // as `123.0` where JavaScript names the same option `123`. The
+        // same restoration the grammar document needs puts it back.
+        let bag = integral_numbers(value.to_json());
+        let field = |name: &str| bag.as_object().and_then(|fields| fields.get(name));
+        ZonOptions {
+            char_as_number: field("charAsNumber").is_some_and(truthy),
+            enum_tag: field("enumTag").filter(|tag| truthy(tag)).map(key_of),
+        }
     }
 
     fn tag(&self) -> Option<String> {
         self.enum_tag.clone().filter(|tag| !tag.is_empty())
+    }
+}
+
+/// JavaScript truthiness, which is how the canonical plugin reads an
+/// option bag: `false`, `null`, `0`, `-0`, `NaN` (which arrives as
+/// `null`, since JSON has no NaN) and `""` are false, and every other
+/// value, an empty array or object included, is true.
+fn truthy(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Null => false,
+        serde_json::Value::Bool(flag) => *flag,
+        serde_json::Value::Number(number) => {
+            number.as_f64().is_some_and(|n| n != 0.0 && !n.is_nan())
+        }
+        serde_json::Value::String(text) => !text.is_empty(),
+        _ => true,
+    }
+}
+
+/// A truthy `enumTag` as the key it names. The option's type is
+/// `null | string`, and a string is itself; the canonical plugin uses
+/// whatever else it is given as a computed property key, which stringifies
+/// it. A boolean and a number come out the same as there, measured. An
+/// ARRAY or an OBJECT, further outside the option's type still, keeps its
+/// JSON spelling here rather than taking the `Array.prototype.toString`
+/// and `[object Object]` of JavaScript, which `DIVERGENCE.md` records.
+fn key_of(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(text) => text.clone(),
+        other => other.to_string(),
     }
 }
 

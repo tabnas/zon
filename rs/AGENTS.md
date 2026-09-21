@@ -118,6 +118,14 @@ round-trip through the engine's option bag with the canonical field names
 engine merges a caller's bag over them, the `UseDefaults` of the Go port.
 An empty `enumTag` means unset, as in Go.
 
+`from_value` reads each field ON ITS OWN, and by JavaScript truthiness,
+because that is what `!!options.charAsNumber` and `options.enumTag ||
+null` mean in `ts/src/zon.ts`. Deserializing the bag as a whole let one
+ill-typed field discard a well-typed one: `{"charAsNumber": true,
+"enumTag": false}` failed at `enumTag` and fell back to the DEFAULTS, so
+`'A'` parsed as `"A"` where both other runtimes give `65`. Keep it field
+by field; `an_option_bag_field_is_read_on_its_own` pins it.
+
 The plugin guards re-invocation with the `zon-init` decoration, set only after the install succeeded so a failed call can be retried (the Go
 port's guard), because a derived instance re-applies plugins.
 
@@ -127,6 +135,18 @@ Big integers, infinities, NaN and the `-0` / `0` distinction have no JSON
 spelling and live in `zon_test.rs`, mirrored case for case with
 `go/zon_test.go` and `ts/test/zon.test.ts`. The parity runner flattens
 through `to_json`, which is the `jsonFlatten` of the Go runner.
+
+So do the divergences: `../DIVERGENCE.md` holds every input on which
+this port and the canonical TypeScript are known to differ, measured
+three ways, and the tests under `the divergences DIVERGENCE.md records`
+in `zon_test.rs` pin them so a REPAIR IN THIS PORT fails as loudly as a
+regression. Those tests assert the RUST side only: the TypeScript and Go
+columns of each table are measurements, so a repair in either of those
+runtimes leaves an entry stale without failing anything here, and
+re-measuring is the reviewer's job. Repairing one means deleting its
+entry and its test in the same change. Finding a new one means measuring
+it three ways and adding both; never widen a parity claim past what a
+test measures.
 
 ## The corpora
 

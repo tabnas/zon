@@ -558,3 +558,142 @@ fn a_long_integer_literal_parses_in_linear_time() {
         started.elapsed()
     );
 }
+
+// --- the divergences DIVERGENCE.md records ---------------------------------
+//
+// Each test below pins a MEASURED difference from the canonical
+// TypeScript, so repairing one fails here as loudly as regressing it. A
+// repair means deleting the entry in DIVERGENCE.md and the test in the
+// same change.
+
+#[test]
+fn nesting_is_bounded_by_the_depth_budget() {
+    // Inherited from tabnas-jsonic, which refuses the 128th open
+    // container with the engine's `cancel` code: the value a parse
+    // returns is walked with the call stack to display, convert or drop,
+    // so an unbounded one ends the process instead of returning an
+    // error. TypeScript and Go have no such limit and parse both of
+    // these.
+    let open =
+        |depth: usize, opener: &str| format!("{}1{}", opener.repeat(depth), " }".repeat(depth));
+    for opener in [".{ .a = ", ".{ "] {
+        assert!(
+            parse(&open(127, opener)).is_ok(),
+            "127 levels of {opener:?} parse"
+        );
+        let refused = parse(&open(128, opener)).expect_err("128 levels are refused");
+        assert_eq!(refused.code, "cancel", "{opener:?}");
+    }
+}
+
+#[test]
+fn a_multi_line_string_leaves_the_column_honest() {
+    // The canonical runtime advances the column of a `\\` string run by
+    // the token's whole length, newlines included, so every later column
+    // on that line is reported too far right: TypeScript and Go both say
+    // 2:20 here, on a line eight characters long. The engine's lexer
+    // exposes only `advance_chars`, which resets the column at each
+    // newline, so this port reports the true column instead.
+    let error = parse(".{ .a = \\\\x\n, .b = }").expect_err("the input is a syntax error");
+    assert_eq!(error.code, "unexpected");
+    assert_eq!((error.row, error.col), (2, 8));
+}
+
+#[test]
+fn an_absurd_decimal_exponent_saturates() {
+    // An exponent of 21 digits or more overflows what the canonical
+    // runtime's `parseInt` keeps exactly, and it then spells the value
+    // back into the literal in exponent form, so `parseFloat` reads only
+    // the prefix: TypeScript gives 10 and 0.1 for these two. Go rejects
+    // both. This port saturates the exponent, so the value is the
+    // infinity or the zero the magnitude calls for.
+    assert_eq!(number("1e999999999999999999999"), f64::INFINITY);
+    assert_eq!(number("1e-999999999999999999999"), 0.0);
+    // A 20-digit exponent is inside the saturation and agrees with
+    // TypeScript exactly.
+    assert_eq!(number("1e99999999999999999999"), f64::INFINITY);
+}
+
+#[test]
+fn an_option_bag_field_is_read_on_its_own() {
+    // The canonical plugin reads `!!options.charAsNumber` and
+    // `options.enumTag || null`, field by field, so an ill-typed field
+    // cannot discard a well-typed one and a truthy value is accepted for
+    // either. Measured against ts/src/zon.ts.
+    let bag = |json: &str| {
+        Value::from_json(&serde_json::from_str::<serde_json::Value>(json).expect("valid JSON"))
+    };
+    let parse_bag = |bag_json: &str, src: &str| {
+        let mut parser = tabnas_jsonic::make();
+        parser
+            .use_plugin(plugin(), Some(bag(bag_json)))
+            .expect("the plugin installs");
+        json(&parser.parse(src).expect("parses"))
+    };
+
+    // The field that matters here is valid; the other one is not.
+    assert_eq!(
+        parse_bag(r#"{"charAsNumber":true,"enumTag":false}"#, "'A'"),
+        "65"
+    );
+    // JavaScript truthiness, not a strict boolean. The Go port asserts
+    // the option to `bool` instead, so it reads these two as unset and
+    // gives `"A"`, which DIVERGENCE.md measures.
+    assert_eq!(parse_bag(r#"{"charAsNumber":1}"#, "'A'"), "65");
+    assert_eq!(parse_bag(r#"{"charAsNumber":"yes"}"#, "'A'"), "65");
+    assert_eq!(parse_bag(r#"{"charAsNumber":null}"#, "'A'"), r#""A""#);
+    assert_eq!(parse_bag(r#"{"charAsNumber":0}"#, "'A'"), r#""A""#);
+    // An empty or falsy tag means unset; a non-string one is the key it
+    // stringifies to, as a computed property key is.
+    assert_eq!(
+        parse_bag(r#"{"enumTag":""}"#, ".{ .k = .red }"),
+        r#"{"k":"red"}"#
+    );
+    assert_eq!(
+        parse_bag(r#"{"enumTag":123}"#, ".{ .k = .red }"),
+        r#"{"k":{"123":"red"}}"#
+    );
+    assert_eq!(
+        parse_bag(r#"{"enumTag":1.5}"#, ".{ .k = .red }"),
+        r#"{"k":{"1.5":"red"}}"#
+    );
+    assert_eq!(
+        parse_bag(r#"{"enumTag":true}"#, ".{ .k = .red }"),
+        r#"{"k":{"true":"red"}}"#
+    );
+    // An array or an object is outside the option's type in every
+    // runtime, and is where this port stops matching: TypeScript names
+    // the key `1,2` and `[object Object]` (DIVERGENCE.md).
+    assert_eq!(
+        parse_bag(r#"{"enumTag":[1,2]}"#, ".{ .k = .red }"),
+        r#"{"k":{"[1,2]":"red"}}"#
+    );
+    assert_eq!(
+        parse_bag(r#"{"enumTag":{"a":1}}"#, ".{ .k = .red }"),
+        r#"{"k":{"{\"a\":1}":"red"}}"#
+    );
+
+    // An unknown field is still ignored, and the typed round trip holds.
+    assert_eq!(parse_bag(r#"{"charAsNumber":true,"bogus":9}"#, "'A'"), "65");
+    let options = with_options(true, Some("$enum"));
+    assert_eq!(ZonOptions::from_value(&options.to_value()), options);
+}
+
+#[test]
+fn a_lone_surrogate_folds_to_the_replacement_character() {
+    // A JavaScript string is a sequence of UTF-16 code units and can
+    // hold an unpaired surrogate; a Rust `String` holds Unicode scalar
+    // values and cannot. The canonical runtime keeps U+D800 in all three
+    // spellings below, and this port substitutes U+FFFD, as the engine
+    // does throughout and as the Go port does. Under `char_as_number`
+    // the value is a number rather than a string, so the code point
+    // itself survives, which all three runtimes agree on.
+    let replacement = Value::String("\u{FFFD}".into());
+    assert_eq!(parse(r"'\u{D800}'").unwrap(), replacement);
+    assert_eq!(parse(r#""\u{D800}""#).unwrap(), replacement);
+    assert_eq!(parse(r#".@"\u{D800}""#).unwrap(), replacement);
+    assert_eq!(
+        json(&parse_with(r"'\u{D800}'", &with_options(true, None)).unwrap()),
+        "55296"
+    );
+}
