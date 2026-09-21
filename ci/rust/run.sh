@@ -93,7 +93,9 @@ lock_without_sibling_versions() {
 
 LOCK_BEFORE=$(mktemp)
 cp Cargo.lock "$LOCK_BEFORE"
-trap 'rm -f "$LOCK_BEFORE"' EXIT
+# On any exit, a red run included, put the lock back if a cargo command
+# rewrote it, then drop the snapshot: the tree is left as it was found.
+trap 'if [ -f "$LOCK_BEFORE" ] && ! cmp -s "$LOCK_BEFORE" Cargo.lock; then cp "$LOCK_BEFORE" Cargo.lock; fi; rm -f "$LOCK_BEFORE"' EXIT
 
 # NOT `--locked`, deliberately, and this is the one place the plugin gate
 # differs from the engine's own (parser ci/rust/run.sh does pass it).
