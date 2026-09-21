@@ -251,133 +251,202 @@ pub(crate) fn pow2(k: i64) -> f64 {
     }
 }
 
-/// An unsigned integer of any size: base 2^32 limbs, least significant
-/// first, with no zero limb on top (zero is no limbs at all). It does the
-/// three things the number matcher needs and nothing else.
+/// An unsigned integer of any size. A decimal literal keeps its digits,
+/// so reading it, rounding it to a double and spelling it back are all
+/// linear in its length; a literal in a power-of-two base is packed into
+/// base 2^32 limbs, least significant first, which is linear too. Only
+/// spelling a limb value in decimal, the `$big` form of a long hex, octal
+/// or binary literal that no double holds, walks the limbs once per nine
+/// digits. It does the three things the number matcher needs and nothing
+/// else.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct BigUint {
-    limbs: Vec<u32>,
+    repr: Repr,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Repr {
+    /// Decimal digits with no leading zero, except for zero itself.
+    Decimal(String),
+    /// Base 2^32 limbs, least significant first, with no zero limb on
+    /// top (zero is no limbs at all).
+    Limbs(Vec<u32>),
 }
 
 impl BigUint {
     /// The integer the digit string denotes in `base`. Every character
     /// must be a digit of that base; the scanner guarantees it.
     pub(crate) fn from_digits(text: &str, base: u32) -> Self {
-        let mut value = BigUint { limbs: Vec::new() };
-        for c in text.bytes() {
-            let digit = digit_val(c);
-            debug_assert!(
-                0 <= digit && (digit as u32) < base,
-                "not a base-{base} digit: {c}"
-            );
-            value.mul_add(base, digit.max(0) as u32);
-        }
-        value
-    }
-
-    fn mul_add(&mut self, mul: u32, add: u32) {
-        let mut carry = u64::from(add);
-        for limb in &mut self.limbs {
-            let v = u64::from(*limb) * u64::from(mul) + carry;
-            *limb = v as u32;
-            carry = v >> 32;
-        }
-        if carry > 0 {
-            self.limbs.push(carry as u32);
-        }
+        debug_assert!(
+            text.bytes().all(|c| {
+                let digit = digit_val(c);
+                0 <= digit && (digit as u32) < base
+            }),
+            "not all base-{base} digits: {text}"
+        );
+        let repr = if base == 10 {
+            let digits = text.trim_start_matches('0');
+            Repr::Decimal(if digits.is_empty() {
+                "0".to_string()
+            } else {
+                digits.to_string()
+            })
+        } else {
+            Repr::Limbs(pack_limbs(text, base))
+        };
+        BigUint { repr }
     }
 
     pub(crate) fn is_zero(&self) -> bool {
-        self.limbs.is_empty()
-    }
-
-    /// The number of significant bits: zero for zero.
-    fn bit_length(&self) -> u64 {
-        match self.limbs.last() {
-            None => 0,
-            Some(top) => (self.limbs.len() as u64 - 1) * 32 + u64::from(32 - top.leading_zeros()),
+        match &self.repr {
+            Repr::Decimal(digits) => digits == "0",
+            Repr::Limbs(limbs) => limbs.is_empty(),
         }
-    }
-
-    fn bit(&self, index: u64) -> bool {
-        self.limbs
-            .get((index / 32) as usize)
-            .is_some_and(|limb| (limb >> (index % 32)) & 1 == 1)
-    }
-
-    fn trailing_zeros(&self) -> u64 {
-        for (index, limb) in self.limbs.iter().enumerate() {
-            if *limb != 0 {
-                return index as u64 * 32 + u64::from(limb.trailing_zeros());
-            }
-        }
-        0
-    }
-
-    /// Bits `from..from + count` as an integer, `count` at most 64.
-    fn bits_from(&self, from: u64, count: u32) -> u64 {
-        (0..count)
-            .filter(|k| self.bit(from + u64::from(*k)))
-            .fold(0u64, |acc, k| acc | (1u64 << k))
-    }
-
-    fn any_bit_below(&self, index: u64) -> bool {
-        (0..index).any(|k| self.bit(k))
     }
 
     /// The nearest double, rounding half to even: `Number(bigint)`.
     pub(crate) fn to_f64(&self) -> f64 {
-        let length = self.bit_length();
-        if length <= 53 {
-            return self.bits_from(0, length as u32) as f64;
+        match &self.repr {
+            // The standard library's decimal-to-double conversion is
+            // correctly rounded for a digit string of any length, and
+            // linear in it; past the double range it is infinity, which
+            // is what `Number` of such a bigint gives too.
+            Repr::Decimal(digits) => digits.parse::<f64>().unwrap_or(f64::INFINITY),
+            Repr::Limbs(limbs) => limbs_to_f64(limbs),
         }
-        let shift = length - 53;
-        let mut mantissa = self.bits_from(shift, 53);
-        let half = self.bit(shift - 1);
-        let sticky = self.any_bit_below(shift - 1);
-        if half && (sticky || mantissa & 1 == 1) {
-            mantissa += 1;
-        }
-        (mantissa as f64) * pow2(shift as i64)
     }
 
     /// The double, when it is exact: `Number.isFinite(n) && BigInt(n) ===
     /// big` in the canonical runtime. A value needs at most 53
     /// significant bits and has to fit the exponent range.
     pub(crate) fn to_f64_exact(&self) -> Option<f64> {
-        let length = self.bit_length();
-        if length > 1024 || length - self.trailing_zeros() > 53 {
-            return None;
+        match &self.repr {
+            Repr::Decimal(digits) => {
+                let value = self.to_f64();
+                // Every finite double this large is an integer, and `{:.0}`
+                // spells its exact value, so the round trip decides
+                // exactness without any big arithmetic.
+                (value.is_finite() && format!("{value:.0}") == *digits).then_some(value)
+            }
+            Repr::Limbs(limbs) => {
+                let length = bit_length(limbs);
+                if length > 1024 || length - trailing_zeros(limbs) > 53 {
+                    return None;
+                }
+                Some(limbs_to_f64(limbs))
+            }
         }
-        Some(self.to_f64())
     }
 
     /// The decimal digits.
     pub(crate) fn to_decimal(&self) -> String {
-        if self.is_zero() {
-            return "0".to_string();
+        match &self.repr {
+            Repr::Decimal(digits) => digits.clone(),
+            Repr::Limbs(limbs) => limbs_to_decimal(limbs),
         }
-        const CHUNK: u64 = 1_000_000_000;
-        let mut limbs = self.limbs.clone();
-        let mut chunks: Vec<u32> = Vec::new();
-        while !limbs.is_empty() {
-            let mut remainder = 0u64;
-            for limb in limbs.iter_mut().rev() {
-                let v = (remainder << 32) | u64::from(*limb);
-                *limb = (v / CHUNK) as u32;
-                remainder = v % CHUNK;
-            }
-            while limbs.last() == Some(&0) {
-                limbs.pop();
-            }
-            chunks.push(remainder as u32);
-        }
-        let mut out = chunks.last().map_or_else(String::new, u32::to_string);
-        for chunk in chunks.iter().rev().skip(1) {
-            out.push_str(&format!("{chunk:09}"));
-        }
-        out
     }
+}
+
+/// The limbs of a digit string in a power-of-two base, packed bit by
+/// bit from the least significant digit: linear in the digit count.
+fn pack_limbs(text: &str, base: u32) -> Vec<u32> {
+    let bits = base.trailing_zeros();
+    let mut limbs = Vec::with_capacity(text.len() * bits as usize / 32 + 1);
+    let mut acc: u64 = 0;
+    let mut filled: u32 = 0;
+    for c in text.bytes().rev() {
+        acc |= u64::from(digit_val(c).max(0) as u32) << filled;
+        filled += bits;
+        if filled >= 32 {
+            limbs.push(acc as u32);
+            acc >>= 32;
+            filled -= 32;
+        }
+    }
+    if filled > 0 {
+        limbs.push(acc as u32);
+    }
+    while limbs.last() == Some(&0) {
+        limbs.pop();
+    }
+    limbs
+}
+
+/// The number of significant bits: zero for zero.
+fn bit_length(limbs: &[u32]) -> u64 {
+    match limbs.last() {
+        None => 0,
+        Some(top) => (limbs.len() as u64 - 1) * 32 + u64::from(32 - top.leading_zeros()),
+    }
+}
+
+fn bit(limbs: &[u32], index: u64) -> bool {
+    limbs
+        .get((index / 32) as usize)
+        .is_some_and(|limb| (limb >> (index % 32)) & 1 == 1)
+}
+
+fn trailing_zeros(limbs: &[u32]) -> u64 {
+    for (index, limb) in limbs.iter().enumerate() {
+        if *limb != 0 {
+            return index as u64 * 32 + u64::from(limb.trailing_zeros());
+        }
+    }
+    0
+}
+
+/// Bits `from..from + count` as an integer, `count` at most 64.
+fn bits_from(limbs: &[u32], from: u64, count: u32) -> u64 {
+    (0..count)
+        .filter(|k| bit(limbs, from + u64::from(*k)))
+        .fold(0u64, |acc, k| acc | (1u64 << k))
+}
+
+fn any_bit_below(limbs: &[u32], index: u64) -> bool {
+    (0..index).any(|k| bit(limbs, k))
+}
+
+/// The nearest double to a limb value, rounding half to even.
+fn limbs_to_f64(limbs: &[u32]) -> f64 {
+    let length = bit_length(limbs);
+    if length <= 53 {
+        return bits_from(limbs, 0, length as u32) as f64;
+    }
+    let shift = length - 53;
+    let mut mantissa = bits_from(limbs, shift, 53);
+    let half = bit(limbs, shift - 1);
+    let sticky = any_bit_below(limbs, shift - 1);
+    if half && (sticky || mantissa & 1 == 1) {
+        mantissa += 1;
+    }
+    (mantissa as f64) * pow2(shift as i64)
+}
+
+/// The decimal digits of a limb value, nine at a time.
+fn limbs_to_decimal(limbs: &[u32]) -> String {
+    if limbs.is_empty() {
+        return "0".to_string();
+    }
+    const CHUNK: u64 = 1_000_000_000;
+    let mut limbs = limbs.to_vec();
+    let mut chunks: Vec<u32> = Vec::new();
+    while !limbs.is_empty() {
+        let mut remainder = 0u64;
+        for limb in limbs.iter_mut().rev() {
+            let v = (remainder << 32) | u64::from(*limb);
+            *limb = (v / CHUNK) as u32;
+            remainder = v % CHUNK;
+        }
+        while limbs.last() == Some(&0) {
+            limbs.pop();
+        }
+        chunks.push(remainder as u32);
+    }
+    let mut out = chunks.last().map_or_else(String::new, u32::to_string);
+    for chunk in chunks.iter().rev().skip(1) {
+        out.push_str(&format!("{chunk:09}"));
+    }
+    out
 }
 
 #[cfg(test)]
@@ -386,6 +455,26 @@ mod tests {
 
     fn big(text: &str, base: u32) -> BigUint {
         BigUint::from_digits(text, base)
+    }
+
+    #[test]
+    fn long_literals_stay_cheap_in_every_base() {
+        // Half a million decimal digits: kept as digits, so reading,
+        // rounding and spelling are linear and take milliseconds.
+        let text = format!("1{}", "0".repeat(500_000));
+        let value = big(&text, 10);
+        assert_eq!(value.to_f64_exact(), None);
+        assert_eq!(value.to_f64(), f64::INFINITY);
+        assert_eq!(value.to_decimal(), text);
+        // Packed bits for the power-of-two bases, spelled once.
+        let hex = big(&"f".repeat(4_000), 16);
+        assert_eq!(hex.to_f64_exact(), None);
+        assert_eq!(hex.to_decimal().len(), 4_817);
+        assert_eq!(big(&"7".repeat(3), 8).to_decimal(), "511");
+        assert_eq!(
+            big("10000000000000000000000000000000000", 2).to_decimal(),
+            "17179869184"
+        );
     }
 
     #[test]

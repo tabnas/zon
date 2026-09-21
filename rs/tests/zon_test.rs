@@ -516,3 +516,45 @@ fn parse_is_safe_across_threads() {
         thread.join().expect("no thread panicked");
     }
 }
+
+#[test]
+fn a_failed_install_is_not_remembered_as_done() {
+    // Installing on a bare engine fails, since ZON reshapes jsonic's
+    // rules; the failure must not mark the instance as initialised, or
+    // the retry after installing jsonic would silently do nothing.
+    let mut parser = tabnas::Tabnas::new();
+    assert!(tabnas_zon::zon(&mut parser, &ZonOptions::default()).is_err());
+    tabnas_jsonic::jsonic(&mut parser).expect("jsonic installs");
+    tabnas_zon::zon(&mut parser, &ZonOptions::default())
+        .expect("zon installs once the base is there");
+    assert_eq!(
+        parser.parse(".{ 1, 2 }").expect("parses").to_string(),
+        "[1,2]"
+    );
+}
+
+#[test]
+fn a_long_integer_literal_parses_in_linear_time() {
+    // Untrusted input can carry a literal of any length; the decimal
+    // path keeps the digits and the hex path packs bits, so neither is
+    // quadratic. The bounds are loose for a loaded debug build.
+    let started = std::time::Instant::now();
+    let decimal = format!("1{}", "0".repeat(300_000));
+    assert_eq!(big(&decimal), decimal);
+    assert!(
+        started.elapsed().as_secs() < 5,
+        "decimal took {:?}",
+        started.elapsed()
+    );
+
+    let started = std::time::Instant::now();
+    let hex = format!("0x{}", "f".repeat(20_000));
+    let digits = big(&hex);
+    assert_eq!(digits.len(), 24_083);
+    assert!(digits.ends_with('5'));
+    assert!(
+        started.elapsed().as_secs() < 20,
+        "hex took {:?}",
+        started.elapsed()
+    );
+}

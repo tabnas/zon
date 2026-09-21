@@ -118,7 +118,7 @@ round-trip through the engine's option bag with the canonical field names
 engine merges a caller's bag over them, the `UseDefaults` of the Go port.
 An empty `enumTag` means unset, as in Go.
 
-The plugin guards re-invocation with the `zon-init` decoration (the Go
+The plugin guards re-invocation with the `zon-init` decoration, set only after the install succeeded so a failed call can be retried (the Go
 port's guard), because a derived instance re-applies plugins.
 
 ## What a fixture cannot hold

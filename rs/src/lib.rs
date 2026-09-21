@@ -440,7 +440,20 @@ pub fn zon(parser: &mut Tabnas, options: &ZonOptions) -> Result<(), PluginError>
     if parser.decoration::<bool>(INIT_MARK).is_some() {
         return Ok(());
     }
-    parser.decorate(INIT_MARK, true);
+    // ZON reshapes jsonic's rules rather than declaring its own, so an
+    // instance without them (a bare engine) gets a clear refusal now
+    // instead of a grammar that can parse nothing later.
+    let names = parser.rule_names();
+    let missing: Vec<&str> = ["val", "map", "list", "pair", "elem"]
+        .into_iter()
+        .filter(|rule| !names.iter().any(|name| name.as_str() == *rule))
+        .collect();
+    if !missing.is_empty() {
+        return Err(PluginError(format!(
+            "zon: the instance has no {} rule; install the jsonic grammar first",
+            missing.join(", ")
+        )));
+    }
 
     // Every closure the grammar names, registered before the document
     // that names them is installed.
@@ -457,6 +470,9 @@ pub fn zon(parser: &mut Tabnas, options: &ZonOptions) -> Result<(), PluginError>
     parser
         .grammar_with_setting(&spec, &GrammarSetting::groups("zon"))
         .map_err(|error| PluginError(format!("zon: failed to apply grammar: {error}")))?;
+    // Marked only once everything above succeeded: a failed install (a
+    // bare engine, say) must not turn the next call into a silent no-op.
+    parser.decorate(INIT_MARK, true);
     Ok(())
 }
 
