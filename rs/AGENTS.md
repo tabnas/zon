@@ -116,7 +116,40 @@ in TypeScript.
 round-trip through the engine's option bag with the canonical field names
 `charAsNumber` and `enumTag`. `plugin()` carries the defaults, and the
 engine merges a caller's bag over them, the `UseDefaults` of the Go port.
-An empty `enumTag` means unset, as in Go.
+An empty `enumTag` means unset at the POINT OF USE, as in Go: `tag()`
+performs that test, and the conversion pair does not.
+
+`from_value` reads each field ON ITS OWN, and by JavaScript truthiness,
+because that is what `!!options.charAsNumber` and `options.enumTag ||
+null` mean in `ts/src/zon.ts`. Deserializing the bag as a whole let one
+ill-typed field discard a well-typed one: `{"charAsNumber": true,
+"enumTag": false}` failed at `enumTag` and fell back to the DEFAULTS, so
+`'A'` parsed as `"A"` where both other runtimes give `65`. Keep it field
+by field; `an_option_bag_field_is_read_on_its_own` pins it.
+
+Two rules hold that conversion together, and both were broken once:
+
+- **The conversion layer is LOSSLESS; the semantic filter lives at the
+  point of use.** `ZonOptions { enum_tag: Some(String::new()) }` is a
+  valid typed value, so `from_value(&options.to_value())` has to return
+  it. Filtering the empty string during conversion ALSO threw away what
+  a caller had recorded, and `tag()` was already performing the same
+  test one layer up. `the_option_conversion_pair_is_lossless` pins it.
+- **Read the bag as the engine `Value`, never through `to_json()`.**
+  That projection renders a non-finite number as `null`, and `null` is
+  falsy where `Infinity` is not, so any truthiness or type test taken
+  after it sees something the canonical runtime never saw: a
+  `charAsNumber` of `Infinity` read as false, and an `enumTag` of
+  `Infinity` read as unset where JavaScript names the key `Infinity`.
+  `a_non_finite_option_is_read_before_the_json_projection` pins it.
+
+A non-string tag becomes the key a computed property key would name, so
+a number spells itself with `number::js_number_to_string`, which is
+ECMA-262 6.1.6.1.20 and not Rust's shortest float form: it writes
+`10000000000000000` out in full and switches to exponent form only at
+`1e21` and `1e-7`. The function is ported from `js_number_to_string` in
+the csv Rust port; do not write another.
+`a_numeric_tag_names_the_key_javascript_names` pins it.
 
 The plugin guards re-invocation with the `zon-init` decoration, set only after the install succeeded so a failed call can be retried (the Go
 port's guard), because a derived instance re-applies plugins.
@@ -127,6 +160,18 @@ Big integers, infinities, NaN and the `-0` / `0` distinction have no JSON
 spelling and live in `zon_test.rs`, mirrored case for case with
 `go/zon_test.go` and `ts/test/zon.test.ts`. The parity runner flattens
 through `to_json`, which is the `jsonFlatten` of the Go runner.
+
+So do the divergences: `../DIVERGENCE.md` holds every input on which
+this port and the canonical TypeScript are known to differ, measured
+three ways, and the tests under `the divergences DIVERGENCE.md records`
+in `zon_test.rs` pin them so a REPAIR IN THIS PORT fails as loudly as a
+regression. Those tests assert the RUST side only: the TypeScript and Go
+columns of each table are measurements, so a repair in either of those
+runtimes leaves an entry stale without failing anything here, and
+re-measuring is the reviewer's job. Repairing one means deleting its
+entry and its test in the same change. Finding a new one means measuring
+it three ways and adding both; never widen a parity claim past what a
+test measures.
 
 ## The corpora
 

@@ -130,15 +130,24 @@ beside the repository, for the shared fixture runner.
 
 ## Differences from the canonical TypeScript
 
-Every verdict and every parse result is the TypeScript one: the shared
-fixtures in [`../test/spec`](../test/spec) and the two zig reference
-corpora hold all three runtimes to it. What differs is the shape of the
-API and the spelling of two values the host language has no type for:
+Every verdict and every parse result a ZON document can express is the
+TypeScript one: the shared fixtures in [`../test/spec`](../test/spec)
+and the two zig reference corpora hold all three runtimes to it. What
+differs is the shape of the API, the spelling of values the host
+language has no type for, and the handful of inputs measured in
+[`../DIVERGENCE.md`](../DIVERGENCE.md):
 
 - **Options are a struct.** `ZonOptions` has `char_as_number` and
   `enum_tag` as typed fields; `to_value` and `from_value` convert to and
-  from the option bag `use_plugin` takes, with the same defaults and the
-  same reading (an empty `enum_tag` means unset, as in Go).
+  from the option bag `use_plugin` takes, with the same defaults.
+  `from_value` reads each field on its own and by JavaScript truthiness,
+  as the canonical plugin does, and reads the bag as the engine value it
+  is rather than through `to_json`, which renders a non-finite number as
+  `null`. The conversion is lossless: an empty `enum_tag` survives the
+  round trip, and `tag` treats it as unset at the point of use, exactly
+  as `options.enumTag || null` does. An array or an object as
+  `enumTag`, outside the option's declared type in every runtime, keeps
+  its JSON spelling here rather than the JavaScript one.
 - **A big integer is an object.** An integer literal whose exact value no
   IEEE-754 double holds is a `bigint` in TypeScript and a `*big.Int` in
   Go. The engine's `Value` has no such variant, so this crate returns
@@ -158,6 +167,21 @@ API and the spelling of two values the host language has no type for:
 - **Lone surrogates fold to U+FFFD**, and the regular expression dialect
   is the `regex` crate's. Both come from the engine, and both are
   recorded there.
+- **A document nested more than 127 containers deep fails** with the
+  engine's `cancel` code. The engine walks a value with the call stack
+  to display, convert or drop it, so an unbounded one ends the process
+  rather than failing; the budget is the one `tabnas-jsonic` already
+  applies, and TypeScript and Go set no limit. A `build.zig.zon`
+  manifest comes nowhere near it, and the deepest document in either zig
+  corpus nests 7 levels.
+- **The column after a multi-line string is the true column.** The
+  canonical runtime advances the column of a `\\` string run by the
+  token's whole length, newlines included, so it names a column too far
+  right for a later error on that line; this port counts the rows the
+  token spans, and no other position differs between the runtimes.
+- **A decimal exponent of 21 digits or more saturates** to an infinity
+  or a zero, where the canonical runtime reads only the prefix of the
+  literal it rebuilds and the Go port rejects it.
 
 ## Build and test
 

@@ -262,6 +262,16 @@ requirement.
   object `{ "$big": "<decimal digits>" }` (`tabnas_zon::BIG_KEY`), the
   spelling the zig corpora use. Every exactly representable integer is a
   plain number in all three.
+- **Every difference between the runtimes that this repository knows of
+  is recorded in [`DIVERGENCE.md`](DIVERGENCE.md)**, measured through all
+  three, with the test that pins it named. The list is short (big
+  integers, lone surrogates, the depth budget, the column after a
+  multi-line string, a 21-digit exponent, an option outside its declared
+  type): a new difference is either repaired or added there with its
+  measurements and its test, in the same change. Those tests assert the
+  RUST side; the TypeScript and Go columns are measurements, and nothing
+  here fails if either of those runtimes changes. Never widen a parity
+  claim past what a test measures.
 
 ## Build & test
 
