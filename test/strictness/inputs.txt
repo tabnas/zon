@@ -104,6 +104,10 @@ true false
 "unterminated
 "\\u{1F600}"
 "\\u{110000}"
+.@"\\u{D800}"
+.@"\\u{DFFF}"
+.@"\\u{D7FF}"
+.@"\\u{E000}"
 "\\x41"
 "tab\there"
 \\line one\n\\line two
@@ -112,6 +116,7 @@ true false
 '\n'
 '\\u{1F600}'
 '\\u{110000}'
+'\\u{D800}'
 ''
 'ab'
 'unterminated

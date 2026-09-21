@@ -7,3 +7,5 @@ input	expected	opts
 '\\u{0}'	0	{"charAsNumber":true}
 '\\u{10FFFF}'	1114111	{"charAsNumber":true}
 '\\''	39	{"charAsNumber":true}
+'\\u{D800}'	55296	{"charAsNumber":true}
+'\\u{DFFF}'	57343	{"charAsNumber":true}

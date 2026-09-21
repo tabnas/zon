@@ -63,7 +63,6 @@ by `big_integers_keep_their_exact_value` and
 | input | TypeScript | Go | Rust |
 |---|---|---|---|
 | `'\u{D800}'` | `"\uD800"` | `U+FFFD` | `U+FFFD` |
-| `.@"\u{D800}"` | `"\uD800"` | `U+FFFD` | `U+FFFD` |
 | `"\u{D800}"` | `"\uD800"` | `U+FFFD` | `U+FFFD` |
 | `'\u{D800}'` with `charAsNumber` | `55296` | `55296` | `55296` |
 
@@ -75,11 +74,39 @@ substitute U+FFFD, as the engine does throughout, and as
 point itself survives under `charAsNumber`, where the value is a number
 rather than a string, which the last row measures.
 
+The two rows that produce a string get there by different routes, and
+the host string type is what folds each. `'\u{D800}'` is this plugin's
+character matcher, which is handed the code point and asks for a
+one-character string: `char::from_u32` has no answer in Rust and
+`string(rune(0xD800))` has none in Go, so both give U+FFFD.
+`"\u{D800}"` never reaches this plugin at all, being lexed by jsonic's
+own string matcher, which substitutes the same character.
+
+A fourth row, `.@"\u{D800}"`, USED to sit here with the same three
+answers. It was not a divergence at all but a shared defect: a
+`\u{...}` escape inside a `.@"..."` identifier is decoded by this
+plugin, zig requires it to name a Unicode SCALAR value, and all three
+runtimes were testing only `cp <= 0x10FFFF`. The pinned zig 0.16.0
+oracle answers `.@"\u{D800}"` with "unicode escape does not correspond
+to a valid unicode scalar value". All three now reject it as
+`zon_ident`, so there is nothing left to record; `test/spec/strict.tsv`
+and `test/spec/errors.tsv` pin the rejection, `test/spec/enums.tsv`
+pins U+D7FF and U+E000 either side of the block, and
+`test/strictness/inputs.txt` puts the boundary in front of the oracle
+itself. A CHARACTER literal is an integer in zig and DOES accept a
+surrogate (the oracle answers `'\u{D800}'` with 55296), which is why
+the first and third rows above survive and why the character matcher
+deliberately keeps the wider bound.
+
 Owned by the engine ports. Pinned in Rust by
-`a_lone_surrogate_folds_to_the_replacement_character`, which covers all
-four rows. No shared fixture carries a surrogate: a fixture row holds
-one expected value for all three runtimes, and these rows are exactly
-where the three do not agree.
+`a_lone_surrogate_folds_to_the_replacement_character`, which covers
+every row above AND asserts the `zon_ident` rejection of the row that
+left. Two shared fixtures now carry a surrogate, because all three
+runtimes agree on them: `chars.tsv` takes `'\u{D800}'` under
+`charAsNumber` (the third row), and `strict.tsv` takes the identifier
+rejection. The first two rows still cannot be fixtures, because a
+fixture row holds one expected value for all three runtimes and those
+are exactly where the three do not agree.
 
 ## Nesting past 127 levels is refused in Rust
 
@@ -132,39 +159,78 @@ Owned by the canonical TypeScript: the repair is to count the token's
 rows there, after which this port matches with no change. Pinned by
 `a_multi_line_string_leaves_the_column_honest`.
 
-## A decimal exponent of 21 digits or more
+## An exponent past what the runtime's integer parse holds
 
-| input | TypeScript | Go | Rust |
-|---|---|---|---|
-| `1e999999999999999999999` | `10` | `ERROR:zon_number` | `Infinity` |
-| `1e-999999999999999999999` | `0.1` | `ERROR:zon_number` | `0` |
-| `1e99999999999999999999` | `Infinity` | `ERROR:zon_number` | `Infinity` |
-| `1e400` | `Infinity` | `Infinity` | `Infinity` |
-| `0x1p-99999999999999999999` | `0` | `ERROR:zon_number` | `0` |
-| `0x1p99999999999999999999` | `Infinity` | `ERROR:zon_number` | `Infinity` |
+Every cell below was measured on 2026-09-21: the `zig` column through
+the pinned zig 0.16.0 oracle the conformance corpora use, the Go column
+twice, once as built for this host and once under `GOARCH=386`, which is
+a real 32-bit build and not an inference from `strconv.IntSize`.
+`ERROR` is `ERROR:zon_number` throughout.
 
-**All three differ, and none matches another.** The canonical runtime
-reads the exponent with `parseInt` and then spells it back into the
-literal it hands to `parseFloat`. Past `1e21` that spelling is itself in
-exponent form, so `1e999999999999999999999` becomes the text `1e1e+21`,
-of which `parseFloat` reads the prefix `1e1`: hence `10`, and `0.1` for
-the negative exponent. The Go port rejects any exponent that overflows
-its integer parse. The Rust port saturates the exponent at a million
-either way, which is already past the double range, so the value is the
-infinity or the zero the magnitude calls for.
+| input | zig 0.16.0 | TypeScript | Go, 64-bit | Go, 32-bit | Rust |
+|---|---|---|---|---|---|
+| `1e400` | `Infinity` | `Infinity` | `Infinity` | `Infinity` | `Infinity` |
+| `1e2147483647` | `Infinity` | `Infinity` | `Infinity` | `Infinity` | `Infinity` |
+| `1e2147483648` | `Infinity` | `Infinity` | `Infinity` | `ERROR` | `Infinity` |
+| `1e9223372036854775807` | `Infinity` | `Infinity` | `Infinity` | `ERROR` | `Infinity` |
+| `1e9223372036854775808` | `Infinity` | `Infinity` | `ERROR` | `ERROR` | `Infinity` |
+| `1e-9223372036854775807` | `0` | `0` | `0` | `ERROR` | `0` |
+| `1e-9223372036854775808` | `0` | `0` | `ERROR` | `ERROR` | `0` |
+| `1e9999999999999999999` | `Infinity` | `Infinity` | `ERROR` | `ERROR` | `Infinity` |
+| `1e100000000000000000001` | `Infinity` | `Infinity` | `ERROR` | `ERROR` | `Infinity` |
+| `1e999999999999999999998` | `Infinity` | `10` | `ERROR` | `ERROR` | `Infinity` |
+| `1e999999999999999999999` | `Infinity` | `10` | `ERROR` | `ERROR` | `Infinity` |
+| `1e-999999999999999999999` | `0` | `0.1` | `ERROR` | `ERROR` | `0` |
+| `0x1p2147483647` | `Infinity` | `Infinity` | `Infinity` | `Infinity` | `Infinity` |
+| `0x1p2147483648` | `Infinity` | `Infinity` | `Infinity` | `ERROR` | `Infinity` |
+| `0x1p99999999999999999999` | `Infinity` | `Infinity` | `ERROR` | `ERROR` | `Infinity` |
+| `0x1p-99999999999999999999` | `0` | `0` | `ERROR` | `ERROR` | `0` |
 
-A 20-digit exponent, the third row, is inside the saturation and agrees
-with the canonical runtime exactly, as do ordinary out-of-range
-exponents. The hexadecimal `p` form saturates the same way and agrees
-with the canonical runtime at both ends, where the Go port rejects it.
+**All three differ, and RUST is the column that matches the reference
+implementation on every row.** Each runtime fails differently, and each
+boundary is a property of how it reads the exponent, not of the number
+of digits:
 
-Owned by the canonical TypeScript, where the behaviour is an artifact of
-the `parseInt` round trip rather than a decision. Pinned by
-`an_absurd_decimal_exponent_saturates`, which asserts EVERY row of the
-table: the two 21-digit exponents, the 20-digit one, `1e400`, and both
-hexadecimal rows. It previously asserted only the first three rows, so a
-regression on `1e400` or on either hexadecimal row would have left the
-suite green while this table still claimed the entry was pinned.
+- **Go** reads the exponent digits with `strconv.Atoi`, which parses
+  into `int`, and rejects the literal when that overflows. The boundary
+  is therefore the host word size, not a digit count: on a 64-bit host
+  it is `math.MaxInt64`, so `1e9223372036854775807` is accepted and
+  `1e9223372036854775808` is not, and on a 32-bit host it is
+  `math.MaxInt32`, so it falls to `1e2147483647` and `1e2147483648`.
+  The sign is applied after the parse (`expSign * n`), so a negative
+  exponent has the same magnitude bound and not the extra step
+  `math.MinInt` would allow. A 32-bit build also reports a shorter
+  span: the quoted source is `1e` rather than the whole literal, because
+  the failure is found before the digits are consumed.
+- **TypeScript** reads the exponent with `parseInt` and then spells the
+  result back into the literal it hands to `parseFloat`. The boundary is
+  where `String(n)` switches to exponent form, which is `1e21`, not a
+  digit count either: `1e100000000000000000001` has 21 exponent digits
+  and a value of `1e20`, and it is `Infinity`, while
+  `1e999999999999999999998` has the same 21 digits, rounds to `1e21` as
+  a double, and becomes the text `1e1e+21`, of which `parseFloat` reads
+  the prefix `1e1`: hence `10`, and `0.1` for the negative exponent.
+  The previous version of this entry said "21 digits or more" for both
+  runtimes, which is true of neither.
+- **Rust** saturates the exponent at a million either way, which is
+  already past the double range, so the value is the infinity or the
+  zero the magnitude calls for, on every row above.
+
+Owned by the canonical TypeScript for the `10` and `0.1` rows, where the
+behaviour is an artifact of the `parseInt` round trip rather than a
+decision, and by the Go port for the rest, where the repair is a
+`strconv.ParseInt(.., 64)` with saturation rather than rejection. Both
+repairs move that runtime TOWARDS the Rust column and towards the zig
+oracle, so neither costs this port anything.
+
+Pinned by `an_absurd_decimal_exponent_saturates` in
+[`rs/tests/zon_test.rs`](rs/tests/zon_test.rs), which asserts the RUST
+column of EVERY row above, and by `TestExponentPastTheHostInteger` in
+[`go/zon_test.go`](go/zon_test.go), which asserts the GO column and
+picks its expectation from `strconv.IntSize`, so it measures the host it
+runs on rather than assuming a 64-bit one. Nothing in this repository
+fails when the TypeScript column is repaired; that one has to be
+re-measured by hand.
 
 ## An option outside its declared type
 
@@ -198,6 +264,9 @@ The input is `.{ .k = .red }` in every row.
 | `{"charAsNumber":Infinity}` | `65` | `"A"` | `65` |
 | `{"charAsNumber":-Infinity}` | `65` | `"A"` | `65` |
 | `{"charAsNumber":NaN}` | `"A"` | the same | the same |
+| `{"charAsNumber":""}` | `"A"` | the same | the same |
+| `{"charAsNumber":[]}` | `65` | `"A"` | `65` |
+| `{"charAsNumber":{}}` | `65` | `"A"` | `65` |
 | `{"charAsNumber":true,"enumTag":false}` | `65` | the same | the same |
 
 The input is `'A'` in every row of the second table. `Infinity` and
@@ -223,13 +292,30 @@ object semantics rather than a value spelling. An EMPTY array or object
 is truthy in JavaScript, so the tag is SET in both TypeScript and Rust
 and only the key differs, where Go reads it as unset with the rest; a
 non-finite element of such a container has no JSON spelling and becomes
-`null` in the one Rust writes, which the last row measures. The Go port asserts each option to its Go type
-instead: a non-string tag and a non-boolean `charAsNumber` both read as
-unset, so the Go port differs from the canonical runtime in thirteen rows
-of the first table and four of the second.
+`null` in the one Rust writes, which the last row of the first table
+measures.
 
-The last row of the second table is the bag that motivated reading the
-bag field by field at all. Deserializing it as a whole failed at
+The same reading applies to `charAsNumber`, which is declared `boolean`.
+An empty array or object is truthy in JavaScript, so `!!options.charAsNumber`
+is true for both and `'A'` parses as `65` in TypeScript, and the Rust
+`truthy` fallback agrees; the Go `toBool` type-asserts to `bool`, gets
+false, and gives `"A"`. An empty STRING is falsy, so that row is one all
+three agree on: it is in the table because a PRESENT BUT DEGENERATE
+option is not an absent one, and the only way to know which side of the
+line each degenerate value falls is to measure it.
+
+The Go port asserts each option to its Go type instead: a non-string tag
+and a non-boolean `charAsNumber` both read as unset, so the Go port
+differs from the canonical runtime in thirteen rows of the first table
+and six of the second. Those counts are the number of rows whose Go cell
+is not "the same", counted off the tables above rather than carried over
+from an earlier version of them; `the_divergence_register_row_counts_are_derived`
+in [`rs/tests/zon_test.rs`](rs/tests/zon_test.rs) re-derives both from
+this file and fails when a row is added without the sentence being
+re-counted.
+
+The `{"charAsNumber":true,"enumTag":false}` row of the second table is
+the bag that motivated reading the bag field by field at all. Deserializing it as a whole failed at
 `enumTag` and fell back to the DEFAULTS, so `'A'` parsed as `"A"` where
 both other runtimes give `65`.
 
@@ -240,8 +326,10 @@ only by reimplementing `Array.prototype.toString` and
 JavaScript truthiness in `toBool`.
 
 Pinned ON THE RUST SIDE ONLY by three tests, which between them assert
-every row of both tables. `an_option_bag_field_is_read_on_its_own` takes
-the string, boolean, empty and container rows;
+every row of both tables, the `charAsNumber` empty-string, empty-array
+and empty-object rows included.
+`an_option_bag_field_is_read_on_its_own` takes the string, boolean,
+empty and container rows of both tables;
 `a_numeric_tag_names_the_key_javascript_names` takes the numeric ones,
 including the spellings either side of the `1e21` and `1e-7` boundaries;
 and `a_non_finite_option_is_read_before_the_json_projection` takes the
@@ -251,4 +339,7 @@ and `a_non_finite_option_is_read_before_the_json_projection` takes the
 second row included: the conversion keeps the string and `tag` applies
 the canonical `|| null` filter at the point of use. The TypeScript and
 Go columns above were measured, not pinned: no test in this repository
-fails if either of those runtimes changes.
+fails if either of those runtimes changes. What IS pinned about them is
+the arithmetic: `the_divergence_register_row_counts_are_derived` reads
+the two tables out of this file and re-derives "thirteen" and "six" from
+the cells, so a row added without re-counting the sentence goes red.
