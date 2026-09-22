@@ -32,7 +32,7 @@
 mod common;
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Once;
 
@@ -256,12 +256,20 @@ fn run_zig_corpus(path: PathBuf, want_valid: usize, want_invalid: usize) {
     );
 }
 
+/// The pinned census of each corpus, valid then invalid. It is one
+/// definition rather than a literal per call site because
+/// `the_corpus_census_in_the_docs_is_the_one_the_runners_pin` holds the
+/// TypeScript and Go runners, and every census figure in every markdown
+/// page in this repository, to exactly these numbers.
+const ZIGZON_CENSUS: (usize, usize) = (184, 44);
+const STRICTNESS_CENSUS: (usize, usize) = (68, 95);
+
 /// Every ZON document harvested from the zig tree. Census re-measured
 /// 2026-08-09 against zig 0.16.0; the TypeScript and Go runners pin the
 /// same numbers.
 #[test]
 fn zigzon_reference_corpus() {
-    run_zig_corpus(zigzon_corpus(), 184, 44);
+    run_zig_corpus(zigzon_corpus(), ZIGZON_CENSUS.0, ZIGZON_CENSUS.1);
 }
 
 /// The leniency probes: inputs designed to catch relaxed-JSON behaviour
@@ -269,5 +277,300 @@ fn zigzon_reference_corpus() {
 /// same reference implementation.
 #[test]
 fn zig_strictness_probes() {
-    run_zig_corpus(strictness_corpus(), 68, 95);
+    run_zig_corpus(
+        strictness_corpus(),
+        STRICTNESS_CENSUS.0,
+        STRICTNESS_CENSUS.1,
+    );
+}
+
+// ---------------------------------------------------------------------
+// The census as a documentation claim.
+//
+// The census is pinned in three runners and repeated in prose on several
+// pages. Prose does not run, so a repeat goes stale silently: the line in
+// `test/AGENTS.md` was moved once and then left behind when the corpus
+// grew again, and nothing went red. Everything below derives the figure
+// instead of restating it, so a census that moves has exactly one place
+// to be changed and every copy of it is checked against that place.
+
+/// Each corpus by the directory name that identifies it in a runner call
+/// and in a documentation table, with its pinned census.
+fn pinned_census() -> [(&'static str, (usize, usize)); 2] {
+    [("zigzon", ZIGZON_CENSUS), ("strictness", STRICTNESS_CENSUS)]
+}
+
+/// Every `N / M` in `text`, as (line number, N, M). Spaces either side of
+/// the slash are allowed, so both the `184/44` of a sentence and the
+/// `184 / 184` of a table cell are found.
+fn slashed_pairs(text: &str) -> Vec<(usize, usize, usize)> {
+    let mut found = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        let chars: Vec<char> = line.chars().collect();
+        let mut at = 0;
+        while at < chars.len() {
+            if !chars[at].is_ascii_digit() {
+                at += 1;
+                continue;
+            }
+            let left_start = at;
+            while at < chars.len() && chars[at].is_ascii_digit() {
+                at += 1;
+            }
+            let mut scan = at;
+            while scan < chars.len() && chars[scan] == ' ' {
+                scan += 1;
+            }
+            if scan >= chars.len() || chars[scan] != '/' {
+                continue;
+            }
+            scan += 1;
+            while scan < chars.len() && chars[scan] == ' ' {
+                scan += 1;
+            }
+            let right_start = scan;
+            while scan < chars.len() && chars[scan].is_ascii_digit() {
+                scan += 1;
+            }
+            if scan == right_start {
+                continue;
+            }
+            let left: String = chars[left_start..at].iter().collect();
+            let right: String = chars[right_start..scan].iter().collect();
+            found.push((
+                index + 1,
+                left.parse().expect("a digit run parses"),
+                right.parse().expect("a digit run parses"),
+            ));
+            at = scan;
+        }
+    }
+    found
+}
+
+/// The first run of digits after `marker`, skipping any spaces between.
+fn number_after(text: &str, marker: &str) -> Option<usize> {
+    let rest = text.split(marker).nth(1)?;
+    let digits: String = rest
+        .trim_start()
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
+    digits.parse().ok()
+}
+
+/// Every markdown page in the repository, skipping the directories that
+/// hold build output or a downloaded toolchain rather than this
+/// repository's own prose.
+fn markdown_pages(dir: &Path, found: &mut Vec<PathBuf>) {
+    const SKIP: &[&str] = &[
+        ".git",
+        "node_modules",
+        "target",
+        "dist",
+        "vendor",
+        "coverage",
+    ];
+    let mut entries: Vec<PathBuf> = fs::read_dir(dir)
+        .unwrap_or_else(|error| panic!("{}: {error}", dir.display()))
+        .map(|entry| entry.expect("a readable directory entry").path())
+        .collect();
+    entries.sort();
+    for path in entries {
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_default();
+        if path.is_dir() {
+            if !SKIP.contains(&name.as_str()) {
+                markdown_pages(&path, found);
+            }
+        } else if name.ends_with(".md") {
+            found.push(path);
+        }
+    }
+}
+
+/// One row of the corpus table a reader-facing page carries.
+struct CorpusRow {
+    corpus: String,
+    documents: usize,
+    accepted: (usize, usize),
+    rejected: (usize, usize),
+}
+
+/// The corpus table on a reader-facing page, one `CorpusRow` per corpus.
+/// A page without the table has none.
+fn corpus_table(page: &str) -> Vec<CorpusRow> {
+    let header = "| Corpus | Documents | Accepted correctly | Rejected correctly |";
+    let Some(body) = page.split(header).nth(1) else {
+        return Vec::new();
+    };
+    let mut rows = Vec::new();
+    for line in body.lines().skip(2) {
+        if !line.starts_with('|') {
+            break;
+        }
+        let cells: Vec<&str> = line.trim().trim_matches('|').split('|').collect();
+        assert_eq!(cells.len(), 4, "a corpus table row has four cells: {line}");
+        let corpus = if cells[0].contains("strictness") {
+            "strictness"
+        } else {
+            "zigzon"
+        };
+        let documents: usize = cells[1]
+            .trim()
+            .parse()
+            .unwrap_or_else(|_| panic!("the documents cell is a number: {line}"));
+        let cell_pair = |cell: &str| -> (usize, usize) {
+            let pairs = slashed_pairs(cell);
+            assert_eq!(pairs.len(), 1, "a census cell is one `N / M`: {line}");
+            (pairs[0].1, pairs[0].2)
+        };
+        rows.push(CorpusRow {
+            corpus: corpus.to_string(),
+            documents,
+            accepted: cell_pair(cells[2]),
+            rejected: cell_pair(cells[3]),
+        });
+    }
+    rows
+}
+
+/// The census the TypeScript, Go and Rust runners pin is the census the
+/// prose claims, everywhere the prose claims one.
+///
+/// Three things are held to `ZIGZON_CENSUS` and `STRICTNESS_CENSUS`: the
+/// literals in the other two runners, the corpus tables in `README.md`
+/// and `AGENTS.md`, and every other `N / M` written anywhere in this
+/// repository's markdown. The last one is deliberately wide. A census
+/// figure is the one number here that a reader takes as measured, so a
+/// page may not carry a stale one; write a ratio that is not a census in
+/// words rather than with a slash.
+#[test]
+fn the_corpus_census_in_the_docs_is_the_one_the_runners_pin() {
+    let root = repo_root();
+    let census = pinned_census();
+
+    // The TypeScript runner: one `runCorpus(...)` call per corpus.
+    let ts = fs::read_to_string(root.join("ts").join("test").join("zigzon.test.ts"))
+        .expect("ts/test/zigzon.test.ts is readable");
+    let mut ts_seen = 0;
+    for call in ts.split("\nrunCorpus(").skip(1) {
+        let call = call.split("\n)").next().expect("the call ends");
+        let (name, (valid, invalid)) = census
+            .iter()
+            .find(|(name, _)| call.contains(&format!("'{name}'")))
+            .expect("a runCorpus call names a known corpus");
+        assert_eq!(
+            (
+                number_after(call, "{ valid:"),
+                number_after(call, "invalid:")
+            ),
+            (Some(*valid), Some(*invalid)),
+            "ts/test/zigzon.test.ts pins a different census for {name} than \
+             ZIGZON_CENSUS / STRICTNESS_CENSUS in rs/tests/zigzon_test.rs"
+        );
+        ts_seen += 1;
+    }
+    assert_eq!(ts_seen, census.len(), "one runCorpus call per corpus");
+
+    // The Go runner: one `runZigCorpus(t, ...)` call per corpus.
+    let go = fs::read_to_string(root.join("go").join("zigzon_test.go"))
+        .expect("go/zigzon_test.go is readable");
+    let mut go_seen = 0;
+    for call in go.split("runZigCorpus(t, ").skip(1) {
+        let call = call.split(')').next().expect("the call ends");
+        let lower = call.to_lowercase();
+        let (name, (valid, invalid)) = census
+            .iter()
+            .find(|(name, _)| lower.contains(*name))
+            .expect("a runZigCorpus call names a known corpus");
+        let numbers: Vec<usize> = call
+            .split(',')
+            .filter_map(|part| part.trim().parse().ok())
+            .collect();
+        assert_eq!(
+            numbers,
+            vec![*valid, *invalid],
+            "go/zigzon_test.go pins a different census for {name} than \
+             ZIGZON_CENSUS / STRICTNESS_CENSUS in rs/tests/zigzon_test.rs"
+        );
+        go_seen += 1;
+    }
+    assert_eq!(go_seen, census.len(), "one runZigCorpus call per corpus");
+
+    // Every markdown page: no stale figure anywhere, and the corpus
+    // tables add up.
+    let mut pages = Vec::new();
+    markdown_pages(&root, &mut pages);
+    assert!(pages.len() > 10, "the markdown walk found the pages");
+    let mut claiming = Vec::new();
+    for page in &pages {
+        let shown = page
+            .strip_prefix(&root)
+            .unwrap_or(page)
+            .display()
+            .to_string();
+        let text = fs::read_to_string(page).unwrap_or_else(|error| panic!("{shown}: {error}"));
+
+        let mut claims = 0;
+        for (line, left, right) in slashed_pairs(&text) {
+            let is_pair = census
+                .iter()
+                .any(|(_, pinned)| (left, right) == (pinned.0, pinned.1));
+            let is_half = left == right
+                && census
+                    .iter()
+                    .any(|(_, pinned)| left == pinned.0 || left == pinned.1);
+            assert!(
+                is_pair || is_half,
+                "{shown}:{line} writes `{left} / {right}`, which is not the pinned \
+                 corpus census ({}/{} in zigzon, {}/{} in strictness). A stale census \
+                 is a claim no runtime holds; a ratio that is not a census belongs in \
+                 words, not in a slash.",
+                ZIGZON_CENSUS.0,
+                ZIGZON_CENSUS.1,
+                STRICTNESS_CENSUS.0,
+                STRICTNESS_CENSUS.1
+            );
+            claims += 1;
+        }
+        if 0 < claims {
+            claiming.push(shown.clone());
+        }
+
+        for row in corpus_table(&text) {
+            let corpus = &row.corpus;
+            let (_, (valid, invalid)) = census
+                .iter()
+                .find(|(name, _)| *name == corpus)
+                .expect("the table names a known corpus");
+            assert_eq!(
+                (row.accepted, row.rejected),
+                ((*valid, *valid), (*invalid, *invalid)),
+                "{shown}: the {corpus} row claims a pass rate the runners do not pin"
+            );
+            assert_eq!(
+                row.documents,
+                valid + invalid,
+                "{shown}: the {corpus} row's document count is not its census summed"
+            );
+        }
+    }
+
+    // The pages that are supposed to carry the figure still do, so this
+    // test cannot pass by the claims having been deleted.
+    claiming.sort();
+    assert_eq!(
+        claiming,
+        vec![
+            "AGENTS.md".to_string(),
+            "README.md".to_string(),
+            "rs/AGENTS.md".to_string(),
+            "test/AGENTS.md".to_string(),
+        ],
+        "the census is claimed on a different set of pages than expected; add the \
+         page here once its figure is derived, or remove the figure from it"
+    );
 }

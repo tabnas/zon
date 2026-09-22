@@ -228,6 +228,17 @@ pinned zig toolchain for, then grades both corpora with the pinned census
 (184/44 and 68/95). A missing corpus FAILS the test; the only skip is the
 platform one, and it names the platform. Do not widen it.
 
+Those two numbers live in `ZIGZON_CENSUS` and `STRICTNESS_CENSUS` in that
+file, and `the_corpus_census_in_the_docs_is_the_one_the_runners_pin` holds
+everything else to them: the literals in `ts/test/zigzon.test.ts` and
+`go/zigzon_test.go`, the corpus tables in `README.md` and `AGENTS.md`
+(document count included, which must be the census summed), and every
+other `N / M` in every markdown page in the repository. The last is
+deliberately wide, because the line in `test/AGENTS.md` went stale twice
+while the corpus grew and nothing went red. Moving the census means
+editing the two constants and re-running; a ratio that is not a census
+goes in words, not in a slash.
+
 ## The docs are gated
 
 `README.md` is in the published set: no em dashes in prose, no first

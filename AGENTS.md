@@ -94,7 +94,13 @@ If a corpus is still missing after that, the suites **FAIL** with
 instructions — they never skip. A conformance suite that quietly does not
 run reports a green tick while measuring nothing, which is worse than no
 suite. All three runners also pin the exact corpus census (184/44 and 68/95),
-so narrowing a corpus goes red instead of inflating the pass rate.
+so narrowing a corpus goes red instead of inflating the pass rate. Those
+figures are a claim wherever prose repeats them, so
+`the_corpus_census_in_the_docs_is_the_one_the_runners_pin` in
+`rs/tests/zigzon_test.rs` reads every census figure out of every markdown
+page in this repository and holds it to what the three runners pin. Write
+a census only as `valid/invalid`, or as a row of the table above; an
+unrelated ratio written with a slash fails that test.
 
 The single exception is a host `scripts/fetch-zigzon.sh` has no pinned zig
 oracle toolchain for — anything other than linux/macos on x86_64/aarch64.
@@ -163,10 +169,10 @@ lexed by the engine with the relaxed-JSON escapes, so `"\u0041"`,
 were accepted in all three runtimes where the oracle rejects each one.
 The plugin now lexes `"..."` itself (the `zonString` matcher, in all
 three runtimes, with the engine's string lexer off), the seven inputs
-are in `test/strictness/inputs.txt` and so in the corpus (the census
-moved from 48/74 to 49/80, with `.@"a\tb"`, `"\xe2\x82\xac"` and `'\0'`
-added at the same time), and [`test/spec/strict.tsv`](test/spec/strict.tsv)
-and [`test/spec/strings.tsv`](test/spec/strings.tsv) pin the rejections,
+are in `test/strictness/inputs.txt` and so in the corpus (added with
+`.@"a\tb"`, `"\xe2\x82\xac"` and `'\0'` at the same time), and
+[`test/spec/strict.tsv`](test/spec/strict.tsv) and
+[`test/spec/strings.tsv`](test/spec/strings.tsv) pin the rejections,
 with the engine's error code for each, without the download.
 
 The second was a float with an EMPTY FRACTION. The number scanner
@@ -177,10 +183,10 @@ stray `.`, so all three runtimes rejected `1.e3`, `1.E3`, `1.e+3`,
 scanner now starts a fraction on the base's exponent letter too, which
 is the rule `0xF.p1` already followed. `1.` on its own is still the
 number and the stray dot, as the oracle reads it. Thirty-four probes
-went into `test/strictness/inputs.txt` with that repair (the census
-moved from 49/80 to 68/95), covering the accepted and rejected forms of
-an empty fraction, digit separators either side of the line, the
-`//!` / `///` / `////` comment boundary and two field-form rejections;
+went into `test/strictness/inputs.txt` with that repair, covering the
+accepted and rejected forms of an empty fraction, digit separators
+either side of the line, the `//!` / `///` / `////` comment boundary and
+two field-form rejections;
 [`test/spec/numbers.tsv`](test/spec/numbers.tsv) and
 [`test/spec/strict.tsv`](test/spec/strict.tsv) pin the same verdicts
 without the download.
