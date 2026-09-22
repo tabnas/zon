@@ -9,7 +9,7 @@ and this file only covers what is specific to this crate.
 | Path | |
 |---|---|
 | `src/lib.rs` | the embedded grammar text, the option overrides document, `ZonOptions`, the two lifecycle hooks, `zon`, `plugin`, `make`, `make_with`, `parse`, `parse_with` |
-| `src/lex.rs` | the five lex matchers (`zonDot`, `zonMultiString`, `zonChar`, `zonNumber`, `zonDocComment`) |
+| `src/lex.rs` | the six lex matchers (`zonDot`, `zonMultiString`, `zonChar`, `zonNumber`, `zonDocComment`, `zonString`) and the Zig string scanner they share with the `.@"..."` form |
 | `src/number.rs` | the Zig number-literal scanner and the small `BigUint` the exactness rule needs |
 | `tests/parity_test.rs` | every `../test/spec/*.tsv` fixture through `tabnas_support::Runner::new_with_row`, a fresh parser per row from its `opts` column |
 | `tests/zigzon_test.rs` | the two zig reference corpora, fetched first when absent; fails, never skips, when a corpus is missing |
@@ -75,11 +75,26 @@ the constant and the file on disk differ.
 
 ## The lex matchers
 
-All five are `imperative_lex_match_ref` registrations named from the
+All six are `imperative_lex_match_ref` registrations named from the
 document's `options.lex.match` (`"make": "@zonDot"` and so on), with the
-canonical orders: 1e5 to 1.4e5, below the engine's first built-in band,
-so `zonDot` owns the `.` prefix ahead of the fixed-token matcher and
-`zonDocComment` sees `//!` and `///` before the comment matcher eats them.
+canonical orders: 1e5 to 1.5e5, below the engine's first built-in band,
+so `zonDot` owns the `.` prefix ahead of the fixed-token matcher,
+`zonDocComment` sees `//!` and `///` before the comment matcher eats them,
+and `zonString` owns `"` (the engine's string lexer is off besides,
+`string.lex: false`, so nothing else produces an `#ST` from a quote).
+
+`scan_zig_string` is the one Zig string scanner, shared by `zonString`
+and the `.@"..."` identifier form. Its escape set is Zig's and no wider,
+a `\u{...}` must name a Unicode SCALAR value (the surrogate block is
+refused, as the pinned oracle refuses it), a `\xNN` run is bytes decoded
+as UTF-8 once the run ends (`String::from_utf8_lossy`, one U+FFFD per
+maximal subpart, which is also what `TextDecoder` and the Go
+`lossyUTF8` give), and a fault carries the ENGINE's error code
+(`unterminated_string`, `unprintable`, `invalid_unicode`,
+`invalid_ascii`, `unexpected`) so `test/spec/strings.tsv` can pin the
+code in all three runtimes. A CHARACTER literal is an integer in Zig and
+does accept a surrogate, so `char_matcher` deliberately keeps the wider
+`<= 0x10FFFF` bound and does not share the scanner.
 
 They work on `lexer.remaining()` by byte index and only ever slice at
 ASCII positions or whole decoded characters, so a byte index is always a
@@ -178,7 +193,7 @@ test measures.
 `zigzon_test.rs` runs `scripts/fetch-zigzon.sh` (through `bash`) when
 either `cases.json` is missing and the host is one the script has a
 pinned zig toolchain for, then grades both corpora with the pinned census
-(184/44 and 48/74). A missing corpus FAILS the test; the only skip is the
+(184/44 and 49/80). A missing corpus FAILS the test; the only skip is the
 platform one, and it names the platform. Do not widen it.
 
 ## The docs are gated

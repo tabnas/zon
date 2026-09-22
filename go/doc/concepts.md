@@ -171,15 +171,15 @@ has no separate integer type in the result tree.
 
 ### Error codes
 
-A successful parse is identical across runtimes, but (inheriting
-jsonic's documented divergences) a few *failing* inputs map to
-different error **codes** between the two: for example a raw control
-character inside a double-quoted string reports `unprintable` in
-TypeScript and `unterminated_string` in Go. Both report the failure at
-the same row/column; only the `Code` differs. If you branch on the
-error code, account for this. See the jsonic Go
-[differences reference](../../../jsonic/go/doc/differences.md) for the
-full list.
+A failing input reports the same error **code** in both runtimes,
+including a malformed double-quoted string: the plugin lexes `"..."`
+itself, in every runtime, and gives a fault the engine's code for it
+(`unterminated_string`, `unprintable`, `invalid_unicode`,
+`invalid_ascii`, `unexpected`). A raw control character inside a string
+is `unprintable` in TypeScript and in Go alike, at the same row and
+column; `test/spec/strings.tsv` pins each code across the runtimes.
+Where the two still differ is recorded, with measurements, in
+[`DIVERGENCE.md`](../../DIVERGENCE.md).
 
 ## Accepted vs rejected: edge cases
 

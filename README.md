@@ -74,19 +74,24 @@ let value = tabnas_zon::parse(".{ .name = \"Alice\", .age = 30 }")?;
 
 ## Conformance
 
-`@tabnas/zon` accepts exactly the documents **ziglang/zig 0.16.0** accepts,
-and produces the same value for each. The reference implementation is the
-judge, not this repo: `scripts/fetch-zigzon.sh` downloads a pinned zig 0.16.0,
-builds a small oracle around the compiler's own `std.zig.Ast` + `std.zig.ZonGen`,
-and has it rule on every ZON document in the zig tree.
+On every document in the two corpora below, `@tabnas/zon` gives the
+verdict **ziglang/zig 0.16.0** gives, and the same value for each accepted
+one. The reference implementation is the judge, not this repo:
+`scripts/fetch-zigzon.sh` downloads a pinned zig 0.16.0, builds a small
+oracle around the compiler's own `std.zig.Ast` + `std.zig.ZonGen`, and has
+it rule on every ZON document in the zig tree.
 
 | Corpus | Documents | Accepted correctly | Rejected correctly |
 |---|---|---|---|
-| Every `.zon` file in the zig tree, plus every snippet in `lib/std/zon/parse.zig` | 222 | 178 / 178 | 44 / 44 |
-| Leniency probes (`test/strictness/inputs.txt`), judged by the same oracle | 117 | 45 / 45 | 72 / 72 |
+| Every `.zon` file in the zig tree, plus every snippet in `lib/std/zon/parse.zig` | 228 | 184 / 184 | 44 / 44 |
+| Leniency probes (`test/strictness/inputs.txt`), judged by the same oracle | 129 | 49 / 49 | 80 / 80 |
 
-Identical in all three runtimes. Two documented deviations, both about
-representing a value that Zig resolves against a target type:
+Identical in all three runtimes. A corpus is a measurement, not a proof:
+the inputs outside both corpora on which a runtime is known to differ
+from the oracle, or from another runtime, are listed with their
+measurements in [`DIVERGENCE.md`](DIVERGENCE.md). Two documented
+deviations, both about representing a value that Zig resolves against a
+target type:
 
 - an integer literal too large for an exact IEEE-754 double is returned as a
   `bigint` (TypeScript) / `*big.Int` (Go) / a `{ "$big": "<digits>" }`

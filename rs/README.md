@@ -20,9 +20,10 @@ This is a jsonic plugin: it layers on the relaxed-JSON grammar of
 [`tabnas-jsonic`](https://github.com/tabnas/jsonic) and reshapes it into
 ZON. It switches the jsonic extensions off, remaps the fixed tokens (`.{`
 opens both a struct and a tuple, `}` closes both, `=` separates a field
-from its value), adds five lex matchers for Zig syntax (dot tokens,
-multi-line strings, character literals, Zig number literals, and the
-rejection of doc comments), and prepends the grammar alternates in
+from its value), adds six lex matchers for Zig syntax (dot tokens,
+multi-line strings, character literals, Zig number literals, the
+rejection of doc comments, and double-quoted strings with Zig's escape
+set), and prepends the grammar alternates in
 [`../zon-grammar.jsonic`](../zon-grammar.jsonic), which every runtime
 embeds.
 
@@ -164,9 +165,13 @@ language has no type for, and the handful of inputs measured in
   TypeScript hook does; the Go port signals the same code through the
   parse context. The result is the same `zon_dup_field` error at the
   same position.
-- **Lone surrogates fold to U+FFFD**, and the regular expression dialect
-  is the `regex` crate's. Both come from the engine, and both are
-  recorded there.
+- **A surrogate character literal folds to U+FFFD.** `'\u{D800}'` is an
+  integer in Zig and a one-character string here by default; a Rust
+  `String` cannot hold an unpaired surrogate, so the character is
+  U+FFFD, where the canonical runtime keeps the UTF-16 code unit. Under
+  `char_as_number` the value is the number 55296 in every runtime. A
+  surrogate escape in a `"..."` string or a `.@"..."` identifier is
+  rejected in every runtime, as the zig oracle rejects it.
 - **A document nested more than 127 containers deep fails** with the
   engine's `cancel` code. The engine walks a value with the call stack
   to display, convert or drop it, so an unbounded one ends the process

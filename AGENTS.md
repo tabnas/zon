@@ -36,12 +36,13 @@ of jsonic:
    'jsonic,imp'` removes implicit maps/lists, top-level commas, path
    dives) and remaps fixed tokens — bare `{` `[` `]` are nulled out and
    `#CL` (the key/value separator) becomes `=` instead of `:`. It also
-   turns jsonic's **number lexer off** (`number.lex: false`), because
-   relaxed-JSON numbers are not ZON numbers.
-2. **Adds five custom lex matchers** (`zonDot`, `zonMultiString`,
-   `zonChar`, `zonNumber`, `zonDocComment`) for Zig syntax the jsonic
-   lexer can't express — or, for the last two, for syntax it would
-   wrongly *accept*.
+   turns jsonic's **number lexer and string lexer off** (`number.lex:
+   false`, `string.lex: false`), because relaxed-JSON numbers are not ZON
+   numbers and relaxed-JSON string escapes are not Zig's.
+2. **Adds six custom lex matchers** (`zonDot`, `zonMultiString`,
+   `zonChar`, `zonNumber`, `zonDocComment`, `zonString`) for Zig syntax
+   the jsonic lexer can't express — or, for the last three, for syntax it
+   would wrongly *accept*.
 3. **Adds four grammar-rule alts** (`val`/`list`/`elem`/`pair`) so a
    single `}` (`#CB`) closes both struct and tuple literals, plus a
    `@pair-bc/prepend` guard that rejects duplicate field names.
@@ -75,7 +76,7 @@ not a proof, and the honest sentence names what it measured.
 | Corpus | Documents | Accepted correctly | Rejected correctly |
 |---|---|---|---|
 | `test/zigzon/cases.json` — every `.zon` file in the zig tree plus every ZON snippet in `lib/std/zon/parse.zig` | 228 | **184 / 184** (values compared, not just "it parsed") | **44 / 44** |
-| `test/strictness/cases.json` — locally authored leniency probes, judged by the same oracle | 122 | **48 / 48** | **74 / 74** |
+| `test/strictness/cases.json` — locally authored leniency probes, judged by the same oracle | 129 | **49 / 49** | **80 / 80** |
 
 The corpora are **not bundled** — generating them downloads a pinned zig
 toolchain and source tarball (~80 MB, verified by SHA-256 and cached in
@@ -92,7 +93,7 @@ everywhere `npm test` / `go test ./...` / `cargo test` runs, CI included.
 If a corpus is still missing after that, the suites **FAIL** with
 instructions — they never skip. A conformance suite that quietly does not
 run reports a green tick while measuring nothing, which is worse than no
-suite. All three runners also pin the exact corpus census (184/44 and 48/74),
+suite. All three runners also pin the exact corpus census (184/44 and 49/80),
 so narrowing a corpus goes red instead of inflating the pass rate.
 
 The single exception is a host `scripts/fetch-zigzon.sh` has no pinned zig
@@ -121,53 +122,49 @@ resolves against a target type:
 
 Everything the corpora cover that the reference rejects, this parser
 rejects — including the cases jsonic's relaxed lexer would otherwise wave
-through (`+1`, `.5`, `5.`, `0123`, `1__0`, `0x_2A`, `0X2A`), duplicate
-struct field names, and `//!` / `///` doc comments.
+through (`+1`, `.5`, `5.`, `0123`, `1__0`, `0x_2A`, `0X2A`, and the
+relaxed-JSON string escapes `"\u0041"`, `"\b"`, `"\f"`, `"\/"`, `"\v"`
+and a surrogate `"\u{D800}"`), duplicate struct field names, and `//!` /
+`///` doc comments.
 
 ### The known conformance gaps
 
-Measured on 2026-09-21 by putting each input below through the SAME
+Measured on 2026-09-22 by putting each input below through the SAME
 pinned oracle the corpora use (`test/zigzon/vendor/oracle-build/oracle`)
 and through all three runtimes. None is in either corpus, and none can
 be: a corpus row asserts the oracle's verdict, so adding one would turn
 the conformance suites red in all three runtimes rather than record
 anything. They are listed here, and pinned, so the prose above cannot
-quietly become false again.
+become false without a test going red.
 
-**1. String escapes inside `"..."` are jsonic's, not Zig's.** An
-ordinary double-quoted string is lexed by the engine, not by this plugin
-(only `.@"..."` identifiers go through the plugin's own decoder), so the
-escape set is the relaxed-JSON one.
-
-| input | zig 0.16.0 | TypeScript | Go | Rust |
-|---|---|---|---|---|
-| `"\u0041"` | `expected '{', found '0'` | `"A"` | `"A"` | `"A"` |
-| `"\b"` | `invalid escape character: 'b'` | `"\b"` | `"\b"` | `"\b"` |
-| `"\f"` | `invalid escape character: 'f'` | `"\f"` | `"\f"` | `"\f"` |
-| `"\/"` | `invalid escape character: '/'` | `"/"` | `"/"` | `"/"` |
-| `"\v"` | `invalid escape character: 'v'` | `"\v"` | `"\v"` | `"\v"` |
-| `"\u{D800}"` | `unicode escape does not correspond to a valid unicode scalar value` | `"\uD800"` | `U+FFFD` | `U+FFFD` |
-| `"\u{D800}\u{DC00}"` | the same rejection | `"\u{10000}"` | `"\u{10000}"` | `"\u{10000}"` |
-
-The same escape inside `.@"..."` IS this plugin's, and does match the
-oracle: `.@"\u0041"`, `.@"\b"`, `.@"\u{D800}"` and `.@"\u{110000}"`
-are all rejected with `zon_ident`, and `test/spec/strict.tsv` pins the
-surrogate pair of them. Repairing the string row would mean the plugin
-taking over the `"..."` lexer in all three runtimes.
-
-**2. An exponent past the host integer.** The Go port reads a decimal or
+**1. An exponent past the host integer.** The Go port reads a decimal or
 hexadecimal exponent with `strconv.Atoi` and rejects what overflows it,
 where the oracle saturates to an infinity or a zero; the canonical
 TypeScript reads only a prefix of the literal it rebuilds once the
-exponent needs exponent form itself. Both are measured in
-[`DIVERGENCE.md`](DIVERGENCE.md) under "A decimal exponent past what the
+exponent needs exponent form itself. Both are measured row by row in
+[`DIVERGENCE.md`](DIVERGENCE.md) under "An exponent past what the
 runtime's integer parse holds", which also records that the RUST column
-is the one that matches the oracle on every row.
-
-Pinned by `the_known_conformance_gaps_against_the_zig_oracle` in
+is the one that matches the oracle on every row. Pinned by
+`an_absurd_decimal_exponent_saturates` in
 [`rs/tests/zon_test.rs`](rs/tests/zon_test.rs), which asserts the Rust
-column of the first table above. It fails if the engine ever tightens
-the escape set, which is the signal to re-measure this section.
+column of every row (the oracle's column), and by
+`TestExponentPastTheHostInteger` in [`go/zon_test.go`](go/zon_test.go),
+which asserts the Go column on the host it runs on. The TypeScript
+column is measured, not pinned: nothing in this repository fails when it
+is repaired.
+
+That is the whole list. A second gap USED to sit above this one: an
+ordinary `"..."` string was lexed by the engine with the relaxed-JSON
+escape set, so `"\u0041"`, `"\b"`, `"\f"`, `"\/"`, `"\v"`, `"\u{D800}"`
+and `"\u{D800}\u{DC00}"` were accepted in all three runtimes where the
+oracle rejects each one. The plugin now lexes `"..."` itself (the
+`zonString` matcher, in all three runtimes, with the engine's string
+lexer off), the seven inputs are in `test/strictness/inputs.txt` and so
+in the corpus (the census moved from 48/74 to 49/80, with `.@"a\tb"`,
+`"\xe2\x82\xac"` and `'\0'` added at the same time), and
+[`test/spec/strict.tsv`](test/spec/strict.tsv) and
+[`test/spec/strings.tsv`](test/spec/strings.tsv) pin the rejections, with
+the engine's error code for each, without the download.
 
 ## Repository map
 
@@ -249,7 +246,7 @@ requirement.
    in-language suites keep only what a fixture cannot express.
 4. The jsonic option overrides (`rule.exclude`, `fixed.token`,
    `tokenSet.KEY`, `string`, `number`, `error`, `comment`, `value`,
-   `text.lex`, `lex.match`) and the five lex matchers exist in **all
+   `text.lex`, `lex.match`) and the six lex matchers exist in **all
    three** runtimes and must stay in step — they all live on the grammar object
    so the plugin applies them atomically alongside its rule alts. Note
    Go's `comment` block carries extra defs (hash/multi) the TS side
@@ -295,6 +292,19 @@ requirement.
 - **`zonDocComment` runs at order 1.4e5, ahead of jsonic's comment
   matcher (6e6).** It only ever *fails* the lex, on `//!` and `///`;
   `////` and plain `//` fall through to the comment matcher.
+- **`zonString` owns every `"..."` literal** (order 1.5e5), and the
+  engine's own string lexer is off (`string.lex: false`), because the
+  relaxed-JSON escape set (`\b`, `\f`, `\v`, `\/`, `\uXXXX`, a surrogate
+  `\u{...}`) is wider than Zig's and the oracle rejects every one of
+  those. It shares its scanner with the `.@"..."` identifier form. A
+  `\xNN` run is a run of BYTES decoded as UTF-8 once the run ends
+  (`"\xe2\x82\xac"` is the euro sign; an ill-formed run is one U+FFFD per
+  maximal subpart in all three runtimes), and a raw control character is
+  a fault. A fault carries the ENGINE's code for it
+  (`unterminated_string`, `unprintable`, `invalid_unicode`,
+  `invalid_ascii`, `unexpected`), so `test/spec/strings.tsv` pins the
+  code across the three runtimes. `'\0'` is not a Zig escape and the
+  character matcher no longer takes it; NUL is `'\x00'` or `'\u{0}'`.
 - **Duplicate field names are caught in `@pair-bc/prepend`,** which must
   run before jsonic's own `@pair-bc` (that one performs the assignment,
   so by `@pair-ac` the collision is gone). `/prepend` is available here

@@ -5,7 +5,7 @@ the Rust port in [`rs/`](rs/) track it. This file records where a runtime
 produces a **different result for the same input**, and why that
 difference is allowed to stand.
 
-Every row below was MEASURED, on 2026-09-21, by running the input in its
+Every row below was MEASURED, on 2026-09-22, by running the input in its
 first column through all three implementations: `ts/src/zon.ts` compiled
 against `@tabnas/parser` 0.10.0 and `@tabnas/jsonic` 0.6.7, the `go/`
 package as it stands, and `tabnas-zon` 0.5.6 against the sibling
@@ -63,7 +63,6 @@ by `big_integers_keep_their_exact_value` and
 | input | TypeScript | Go | Rust |
 |---|---|---|---|
 | `'\u{D800}'` | `"\uD800"` | `U+FFFD` | `U+FFFD` |
-| `"\u{D800}"` | `"\uD800"` | `U+FFFD` | `U+FFFD` |
 | `'\u{D800}'` with `charAsNumber` | `55296` | `55296` | `55296` |
 
 **Inherited, and not Rust-only.** A JavaScript string is a sequence of
@@ -72,41 +71,40 @@ a Rust `String` hold Unicode scalar values and cannot. Both ports
 substitute U+FFFD, as the engine does throughout, and as
 `@tabnas/parser`'s own `DIVERGENCE.md` records for the engine. The code
 point itself survives under `charAsNumber`, where the value is a number
-rather than a string, which the last row measures.
+rather than a string, which the second row measures.
 
-The two rows that produce a string get there by different routes, and
-the host string type is what folds each. `'\u{D800}'` is this plugin's
-character matcher, which is handed the code point and asks for a
-one-character string: `char::from_u32` has no answer in Rust and
-`string(rune(0xD800))` has none in Go, so both give U+FFFD.
-`"\u{D800}"` never reaches this plugin at all, being lexed by jsonic's
-own string matcher, which substitutes the same character.
-
-A fourth row, `.@"\u{D800}"`, USED to sit here with the same three
-answers. It was not a divergence at all but a shared defect: a
-`\u{...}` escape inside a `.@"..."` identifier is decoded by this
-plugin, zig requires it to name a Unicode SCALAR value, and all three
-runtimes were testing only `cp <= 0x10FFFF`. The pinned zig 0.16.0
-oracle answers `.@"\u{D800}"` with "unicode escape does not correspond
-to a valid unicode scalar value". All three now reject it as
-`zon_ident`, so there is nothing left to record; `test/spec/strict.tsv`
-and `test/spec/errors.tsv` pin the rejection, `test/spec/enums.tsv`
-pins U+D7FF and U+E000 either side of the block, and
-`test/strictness/inputs.txt` puts the boundary in front of the oracle
-itself. A CHARACTER literal is an integer in zig and DOES accept a
-surrogate (the oracle answers `'\u{D800}'` with 55296), which is why
-the first and third rows above survive and why the character matcher
+The one route to a string here is this plugin's character matcher,
+which is handed the code point and asks for a one-character string:
+`char::from_u32` has no answer in Rust and `string(rune(0xD800))` has
+none in Go, so both give U+FFFD. A CHARACTER literal is an integer in
+zig and DOES accept a surrogate (the pinned zig 0.16.0 oracle answers
+`'\u{D800}'` with 55296), which is why the character matcher
 deliberately keeps the wider bound.
 
+Two more rows USED to sit here with the same three answers,
+`"\u{D800}"` and `.@"\u{D800}"`. Neither was a divergence; both were
+shared defects. Zig requires a `\u{...}` escape in a string or an
+identifier to name a Unicode SCALAR value, and the oracle answers both
+with "unicode escape does not correspond to a valid unicode scalar
+value". The identifier was decoded by this plugin, which tested only
+`cp <= 0x10FFFF`; the string never reached the plugin at all, being
+lexed by jsonic's own string matcher with the relaxed-JSON escape set.
+The plugin now lexes `"..."` itself (`zonString`, in all three
+runtimes, with the engine's string lexer off), and every runtime
+rejects both: `zon_ident` for the identifier and the engine's
+`invalid_unicode` for the string, so there is nothing left to record.
+`test/spec/strict.tsv` and `test/spec/strings.tsv` pin the rejections,
+`test/spec/enums.tsv` and `strings.tsv` pin U+D7FF and U+E000 either
+side of the block, and `test/strictness/inputs.txt` puts the boundary
+in front of the oracle itself.
+
 Owned by the engine ports. Pinned in Rust by
-`a_lone_surrogate_folds_to_the_replacement_character`, which covers
-every row above AND asserts the `zon_ident` rejection of the row that
-left. Two shared fixtures now carry a surrogate, because all three
-runtimes agree on them: `chars.tsv` takes `'\u{D800}'` under
-`charAsNumber` (the third row), and `strict.tsv` takes the identifier
-rejection. The first two rows still cannot be fixtures, because a
-fixture row holds one expected value for all three runtimes and those
-are exactly where the three do not agree.
+`a_lone_surrogate_folds_to_the_replacement_character`, which covers both
+rows above AND asserts the rejection of the two rows that left.
+`chars.tsv` carries the second row as a shared fixture, because all
+three runtimes agree on it. The first row cannot be one, because a
+fixture row holds one expected value for all three runtimes and that is
+exactly where the three do not agree.
 
 ## Nesting past 127 levels is refused in Rust
 

@@ -71,6 +71,10 @@ applied together through one `GrammarSpec`:
      not ZON numbers.
    - `//!` and `///` fail the lex: they are Zig doc comments, which ZON
      rejects.
+   - `"..."` strings emit `#ST` from a matcher with Zig's escape set and
+     no other: jsonic's own string lexer is switched off, because its
+     relaxed-JSON escapes (`\b`, `\uXXXX`, a surrogate `\u{...}`) are not
+     Zig's. A fault carries the engine's error code.
 
 2. **Token remapping.** `#CL` is rebound from `:` to `=`; the default
    char mappings for `#OB`, `#OS`, and `#CS` are dropped to `null`, so
