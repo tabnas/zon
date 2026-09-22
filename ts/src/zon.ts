@@ -172,19 +172,11 @@ const Zon: Plugin = (tn: Tabnas, options: ZonOptions) => {
       // ZON field names are identifiers only.
       KEY: ['#TX'],
     },
+    // The engine's string matcher is off: `"..."` is lexed by the
+    // zonString matcher below with Zig's escape set, which is narrower
+    // than the relaxed-JSON one and refuses a surrogate `\u{...}`.
     string: {
-      chars: '"',
-      multiChars: '',
-      // Zig-flavoured escape sequences.
-      escape: {
-        n: '\n',
-        r: '\r',
-        t: '\t',
-        '\\': '\\',
-        '"': '"',
-        '\'': '\'',
-      },
-      allowUnknown: false,
+      lex: false,
     },
     // jsonic's relaxed number lexer accepts `+1`, `.5`, `5.`, `0123`,
     // `1__0` and friends, none of which are ZON. The zonNumber matcher
@@ -230,6 +222,7 @@ const Zon: Plugin = (tn: Tabnas, options: ZonOptions) => {
         // Must out-order jsonic's comment matcher (6e6) so `//!` and `///`
         // are rejected instead of being eaten as ordinary line comments.
         zonDocComment: { order: 1.4e5, make: buildZonDocCommentMatcher() },
+        zonString: { order: 1.5e5, make: buildZonStringMatcher() },
       },
     },
   }
@@ -354,57 +347,128 @@ function peekIsMapOpen(cfg: Config, src: string, start: number): boolean {
 
 // Decode a Zig double-quoted string body starting at `i` (just past the
 // opening quote). Returns the decoded value and the index just past the
-// closing quote, or null when the literal is malformed. Used for `.@"..."`
-// escaped identifiers; ordinary string literals are lexed by jsonic.
+// closing quote, or null when the literal is malformed. The `.@"..."`
+// identifier form, which Zig lexes with the same rules as a string.
 function decodeZigString(
   src: string,
   i: number,
 ): { val: string; end: number } | null {
+  const scan = scanZigString(src, i)
+  return undefined === scan.err ? { val: scan.val, end: scan.end } : null
+}
+
+// The result of scanning a `"..."` body: the value and the index past the
+// closing quote, or, when `err` is set, the ENGINE's error code for the
+// fault (`unterminated_string`, `unprintable`, `invalid_unicode`,
+// `invalid_ascii`, `unexpected`) and the index just past it, so the
+// message can quote the literal from its opening quote up to the fault
+// and a caller branching on the code sees what the engine's own string
+// matcher would have said.
+type ZigStringScan = { val: string; end: number; err?: string }
+
+// Scan a Zig double-quoted string body starting at `start` (just past the
+// opening quote). Shared by the `"..."` string matcher and the `.@"..."`
+// identifier form.
+//
+// The escape set is Zig's and nothing wider: `\n`, `\r`, `\t`, `\\`, `\'`,
+// `\"`, `\xNN` and `\u{...}`. A `\u{...}` must name a Unicode SCALAR value,
+// so the surrogate block is refused along with anything above U+10FFFF.
+// Measured against the pinned zig 0.16.0 oracle, which answers `"\u{D800}"`
+// and `.@"\u{D800}"` alike with "unicode escape does not correspond to a
+// valid unicode scalar value"; a CHARACTER literal is an integer in Zig and
+// does accept a surrogate, so buildZonCharMatcher deliberately does not
+// share this test. A run of `\xNN` escapes is a run of BYTES, as it is in
+// Zig, decoded as UTF-8 once the run ends: `"\xe2\x82\xac"` is the euro
+// sign, and an ill-formed sequence becomes one U+FFFD per maximal subpart,
+// as TextDecoder decodes it. A raw control character, a line end
+// included, is not a string character.
+function scanZigString(src: string, start: number): ZigStringScan {
   let out = ''
-  while (i < src.length) {
-    const c = src[i]
-    if ('"' === c) return { val: out, end: i + 1 }
-    if ('\n' === c || '\r' === c) return null
-    if ('\\' === c) {
-      const e = src[i + 1]
-      if ('x' === e) {
-        const hex = src.substring(i + 2, i + 4)
-        if (!/^[0-9a-fA-F]{2}$/.test(hex)) return null
-        out += String.fromCharCode(parseInt(hex, 16))
-        i += 4
-      } else if ('u' === e) {
-        if ('{' !== src[i + 2]) return null
-        const endI = src.indexOf('}', i + 3)
-        if (-1 === endI) return null
-        const hex = src.substring(i + 3, endI)
-        if (!/^[0-9a-fA-F]+$/.test(hex)) return null
-        const cp = parseInt(hex, 16)
-        // Zig: a STRING escape must name a Unicode SCALAR value, so the
-        // surrogate block is refused along with anything above U+10FFFF.
-        // Measured against the pinned zig 0.16.0 oracle, which answers
-        // `.@"\u{D800}"` with "unicode escape does not correspond to a
-        // valid unicode scalar value". A CHARACTER literal is an integer
-        // in Zig and does accept a surrogate, so buildZonCharMatcher
-        // deliberately does not share this test.
-        if (0x10ffff < cp || (0xd800 <= cp && cp <= 0xdfff)) return null
-        out += String.fromCodePoint(cp)
-        i = endI + 1
-      } else if (undefined !== ZIG_ESCAPE[e]) {
-        out += ZIG_ESCAPE[e]
-        i += 2
-      } else {
-        return null
-      }
-    } else {
-      out += c
-      i++
+  // The bytes of consecutive `\xNN` escapes, decoded together.
+  let pending: number[] = []
+  const flush = () => {
+    if (0 < pending.length) {
+      out += new TextDecoder().decode(Uint8Array.from(pending))
+      pending = []
     }
   }
-  return null
+  const fault = (err: string, end: number): ZigStringScan =>
+    ({ val: '', end: Math.min(end, src.length), err })
+
+  let i = start
+  while (i < src.length) {
+    const c = src.charCodeAt(i)
+    if (34 === c) {
+      flush()
+      return { val: out, end: i + 1 }
+    }
+    if (10 === c || 13 === c) return fault('unterminated_string', i)
+    if (c < 0x20 || 0x7f === c) return fault('unprintable', i + 1)
+    if (92 !== c) {
+      flush()
+      out += src[i]
+      i++
+      continue
+    }
+    const e = src[i + 1]
+    if (undefined === e) return fault('unterminated_string', i + 1)
+    if ('x' === e) {
+      const hex = src.substring(i + 2, i + 4)
+      if (!/^[0-9a-fA-F]{2}$/.test(hex)) return fault('invalid_ascii', i + 4)
+      pending.push(parseInt(hex, 16))
+      i += 4
+    } else if ('u' === e) {
+      if ('{' !== src[i + 2]) return fault('invalid_unicode', i + 3)
+      let close = i + 3
+      while (close < src.length && -1 !== digitVal(src[close])) close++
+      if (close === i + 3 || '}' !== src[close]) {
+        return fault('invalid_unicode', close + 1)
+      }
+      const cp = parseInt(src.substring(i + 3, close), 16)
+      if (0x10ffff < cp || (0xd800 <= cp && cp <= 0xdfff)) {
+        return fault('invalid_unicode', close + 1)
+      }
+      flush()
+      out += String.fromCodePoint(cp)
+      i = close + 1
+    } else if (undefined !== ZIG_ESCAPE[e]) {
+      flush()
+      out += ZIG_ESCAPE[e]
+      i += 2
+    } else {
+      return fault('unexpected', i + 2)
+    }
+  }
+  return fault('unterminated_string', src.length)
+}
+
+// Zig double-quoted strings, `"..."`, with Zig's escape set and no other.
+// The engine's own string matcher is switched off (`string.lex: false`):
+// its relaxed-JSON escapes (`\b`, `\f`, `\v`, `\/`, `\uXXXX`) and its
+// acceptance of a surrogate `\u{...}` are not ZON, and the pinned zig
+// oracle rejects every one of them. The token is `#ST`, as the engine's
+// would be, and a fault carries the engine's code for it.
+function buildZonStringMatcher() {
+  return function makeZonStringMatcher(_cfg: Config, _opts: TabnasOptions) {
+    return function zonStringMatcher(lex: Lex) {
+      const { pnt } = lex
+      const src: string = lex.src as unknown as string
+      const { sI, cI } = pnt
+      if ('"' !== src[sI]) return undefined
+
+      const scan = scanZigString(src, sI + 1)
+      if (undefined !== scan.err) return lex.bad(scan.err, sI, scan.end)
+
+      const tkn = lex.token('#ST', scan.val, src.substring(sI, scan.end), pnt)
+      pnt.sI = scan.end
+      pnt.cI = cI + (scan.end - sI)
+      return tkn
+    }
+  }
 }
 
 // The single-character Zig escapes (the `\xNN` and `\u{...}` forms are
-// handled positionally by decodeZigString).
+// handled positionally by scanZigString).
 const ZIG_ESCAPE: Record<string, string> = {
   n: '\n',
   r: '\r',
@@ -500,6 +564,8 @@ function buildZonMultiStringMatcher() {
 
 // Zig character literal: `'x'`, `'\n'`, `'\x41'`, `'\u{1F600}'`.
 // Produces a numeric code point (if charAsNumber) or a one-char string.
+// Unlike a string, a character literal is an INTEGER in Zig: `'\xD8'` is
+// 216 and `'\u{D800}'` is 55296, so neither goes through scanZigString.
 function buildZonCharMatcher(charAsNumber: boolean) {
   return function makeZonCharMatcher(_cfg: Config, _opts: TabnasOptions) {
     return function zonCharMatcher(lex: Lex) {
@@ -520,7 +586,9 @@ function buildZonCharMatcher(charAsNumber: boolean) {
           case '\\': codepoint = 92; i++; break
           case '\'': codepoint = 39; i++; break
           case '"': codepoint = 34; i++; break
-          case '0': codepoint = 0; i++; break
+          // `\0` is NOT a Zig escape (`'\x00'` and `'\u{0}'` are): the
+          // pinned zig 0.16.0 oracle answers `'\0'` with "invalid escape
+          // character: '0'".
           case 'x': {
             i++
             const hex = src.substring(i, i + 2)

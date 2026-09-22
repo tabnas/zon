@@ -27,7 +27,7 @@
 //! TypeScript plugin in `ts/src/zon.ts` does. It switches the jsonic
 //! extensions off (`rule.exclude: jsonic,imp`), remaps the fixed tokens
 //! (`.{` opens both structs and tuples, `}` closes both, `=` separates a
-//! field from its value), adds five lex matchers for Zig syntax, and
+//! field from its value), adds six lex matchers for Zig syntax, and
 //! prepends the grammar alternates in `zon-grammar.jsonic`, which every
 //! runtime embeds.
 //!
@@ -328,19 +328,11 @@ fn options_document() -> serde_json::Value {
             // ZON field names are identifiers only.
             "KEY": ["#TX"],
         },
+        // The engine's string matcher is off: `"..."` is lexed by the
+        // zonString matcher with Zig's escape set, which is narrower than
+        // the relaxed-JSON one and refuses a surrogate `\u{...}`.
         "string": {
-            "chars": "\"",
-            "multiChars": "",
-            // Zig-flavoured escape sequences.
-            "escape": {
-                "n": "\n",
-                "r": "\r",
-                "t": "\t",
-                "\\": "\\",
-                "\"": "\"",
-                "'": "'",
-            },
-            "allowUnknown": false,
+            "lex": false,
         },
         // The relaxed number lexer accepts `+1`, `.5`, `5.`, `0123`,
         // `1__0` and friends, none of which are ZON. The zonNumber matcher
@@ -391,6 +383,7 @@ fn options_document() -> serde_json::Value {
                 // Must out-order the comment matcher so `//!` and `///`
                 // are rejected instead of being eaten as line comments.
                 "zonDocComment": { "order": 1.4e5, "make": lex::DOC_COMMENT },
+                "zonString": { "order": 1.5e5, "make": lex::STRING },
             },
         },
     })

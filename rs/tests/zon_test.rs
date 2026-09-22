@@ -867,17 +867,29 @@ fn an_option_bag_field_is_read_on_its_own() {
 fn a_lone_surrogate_folds_to_the_replacement_character() {
     // A JavaScript string is a sequence of UTF-16 code units and can
     // hold an unpaired surrogate; a Rust `String` holds Unicode scalar
-    // values and cannot. The canonical runtime keeps U+D800 in all three
-    // spellings below, and this port substitutes U+FFFD, as the engine
-    // does throughout and as the Go port does. Under `char_as_number`
-    // the value is a number rather than a string, so the code point
-    // itself survives, which all three runtimes agree on.
+    // values and cannot. A CHARACTER literal is an integer in zig and
+    // accepts a surrogate (the pinned oracle answers `'\u{D800}'` with
+    // 55296), so it is the one spelling that reaches a string here: the
+    // canonical runtime keeps U+D800, and this port substitutes U+FFFD,
+    // as the engine does throughout and as the Go port does. Under
+    // `char_as_number` the value is a number rather than a string, so
+    // the code point itself survives, which all three runtimes agree on.
     let replacement = Value::String("\u{FFFD}".into());
     assert_eq!(parse(r"'\u{D800}'").unwrap(), replacement);
-    assert_eq!(parse(r#""\u{D800}""#).unwrap(), replacement);
-    assert_eq!(parse(r#".@"\u{D800}""#).unwrap(), replacement);
     assert_eq!(
         json(&parse_with(r"'\u{D800}'", &with_options(true, None)).unwrap()),
         "55296"
     );
+    // A `\u{...}` escape in a STRING or in a `.@"..."` identifier must
+    // name a Unicode SCALAR value, so neither ever reaches a string type:
+    // the oracle rejects both, and so do all three runtimes, with the
+    // engine's code for the string and this plugin's for the identifier
+    // (test/spec/strict.tsv and strings.tsv). Asserted here too, so the
+    // rows that left DIVERGENCE.md cannot grow back unnoticed.
+    assert_eq!(parse(r#""\u{D800}""#).unwrap_err().code, "invalid_unicode");
+    assert_eq!(
+        parse(r#""\u{D800}\u{DC00}""#).unwrap_err().code,
+        "invalid_unicode"
+    );
+    assert_eq!(parse(r#".@"\u{D800}""#).unwrap_err().code, "zon_ident");
 }

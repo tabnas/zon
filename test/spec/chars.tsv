@@ -9,3 +9,6 @@ input	expected	opts
 '\\''	39	{"charAsNumber":true}
 '\\u{D800}'	55296	{"charAsNumber":true}
 '\\u{DFFF}'	57343	{"charAsNumber":true}
+# NUL is `'\x00'` or `'\u{0}'`; `'\0'` is not a Zig escape (see strict.tsv).
+'\\x00'	0	{"charAsNumber":true}
+'\\xD8'	216	{"charAsNumber":true}

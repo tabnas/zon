@@ -186,6 +186,6 @@ runCorpus(
 )
 runCorpus(
   'strictness probe (verdicts from zig 0.16.0)',
-  { valid: 48, invalid: 74 },
+  { valid: 49, invalid: 80 },
   'test', 'strictness', 'cases.json',
 )

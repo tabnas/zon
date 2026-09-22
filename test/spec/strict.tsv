@@ -51,6 +51,25 @@ infinity	ERROR
 # accepts one: see chars.tsv for `'\\u{D800}'`.
 .@"\\u{D800}"	ERROR
 .@"\\u{DFFF}"	ERROR
+# A raw control character is not an identifier character either.
+.@"a\tb"	ERROR
+# --- string literals --------------------------------------------------------
+# A `"..."` literal takes Zig's escape set and no other: the relaxed-JSON
+# escapes are rejected, a `\u{...}` must name a Unicode scalar value (so the
+# surrogate block is out, paired or not), and a raw control character is not
+# a string character.
+"\\u{D800}"	ERROR
+"\\u{DFFF}"	ERROR
+"\\u{D800}\\u{DC00}"	ERROR
+"\\u0041"	ERROR
+"\\b"	ERROR
+"\\f"	ERROR
+"\\/"	ERROR
+"\\v"	ERROR
+"\\a"	ERROR
+"\\u{}"	ERROR
+"\\x4"	ERROR
+"a\tb"	ERROR
 # --- struct / tuple shape ---------------------------------------------------
 .{ .a = 1, .a = 2 }	ERROR
 .{\n    .name = 10,\n    .name = 20,\n}	ERROR
@@ -63,6 +82,8 @@ infinity	ERROR
 ''	ERROR
 'ab'	ERROR
 '\\u{110000}'	ERROR
+# `\0` is not a Zig escape; `'\x00'` and `'\u{0}'` are (see chars.tsv).
+'\\0'	ERROR
 # --- one value per document -------------------------------------------------
 1 2	ERROR
 "a" "b"	ERROR

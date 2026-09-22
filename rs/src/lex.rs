@@ -1,21 +1,22 @@
 /* Copyright (c) 2025-2026 Richard Rodger, MIT License */
 
-//! The five custom lex matchers, ported from `ts/src/zon.ts`, for Zig
+//! The six custom lex matchers, ported from `ts/src/zon.ts`, for Zig
 //! syntax the relaxed-JSON lexer cannot express, or would wrongly accept.
 //!
 //! They are registered by name on the instance and named from the
 //! grammar document's `options.lex.match`, with the orders the canonical
 //! runtime gives them: all below the engine's first built-in band (1e6),
-//! so `zonDot` owns the `.` prefix ahead of the fixed-token matcher and
-//! `zonDocComment` sees `//!` and `///` before the comment matcher eats
-//! them.
+//! so `zonDot` owns the `.` prefix ahead of the fixed-token matcher,
+//! `zonString` owns `"` ahead of the engine's string matcher (which is
+//! switched off besides) and `zonDocComment` sees `//!` and `///` before
+//! the comment matcher eats them.
 //!
 //! Every matcher works on [`Lexer::remaining`] by byte index. The only
 //! non-ASCII bytes any of them cares about are whole characters (a raw
-//! character literal, the body of a `.@"..."` identifier), and those are
-//! decoded as characters; everything else is compared against ASCII, so
-//! a byte index is always a character boundary where it is used to
-//! slice. Cursor advancement goes through [`Lexer::advance_chars`], which
+//! character literal, the body of a string or a `.@"..."` identifier),
+//! and those are decoded as characters; everything else is compared
+//! against ASCII, so a byte index is always a character boundary where
+//! it is used to slice. Cursor advancement goes through [`Lexer::advance_chars`], which
 //! keeps the row and column honest across the newlines a token may span,
 //! the bookkeeping the TypeScript `advance` helpers do by hand.
 
@@ -30,6 +31,7 @@ pub(crate) const MULTI_STRING: &str = "@zonMultiString";
 pub(crate) const CHAR: &str = "@zonChar";
 pub(crate) const NUMBER: &str = "@zonNumber";
 pub(crate) const DOC_COMMENT: &str = "@zonDocComment";
+pub(crate) const STRING: &str = "@zonString";
 
 /// The token detail the `zonDot` matcher sets on an identifier token, so
 /// the enum-tag hook can tell `.foo` from a string.
@@ -46,6 +48,7 @@ pub(crate) fn register(parser: &mut Tabnas, char_as_number: bool) {
     });
     parser.imperative_lex_match_ref(NUMBER, number_matcher);
     parser.imperative_lex_match_ref(DOC_COMMENT, doc_comment_matcher);
+    parser.imperative_lex_match_ref(STRING, string_matcher);
 }
 
 // ---------------------------------------------------------------------------
@@ -205,74 +208,121 @@ fn peek_is_map_open(src: &str, start: usize, line_chars: &str) -> bool {
 
 /// Decode a Zig double-quoted string body starting at byte `i`, just past
 /// the opening quote: the decoded value and the byte just past the closing
-/// quote, or `None` when the literal is malformed. Used for `.@"..."`
-/// identifiers; ordinary string literals are lexed by the engine.
-fn decode_zig_string(src: &str, mut i: usize) -> Option<(String, usize)> {
+/// quote, or `None` when the literal is malformed. The `.@"..."`
+/// identifier form, which Zig lexes with the same rules as a string.
+fn decode_zig_string(src: &str, i: usize) -> Option<(String, usize)> {
+    scan_zig_string(src, i).ok()
+}
+
+/// Why a `"..."` body failed to decode: the ENGINE's error code for the
+/// same fault, so a caller branching on `unterminated_string`,
+/// `unprintable`, `invalid_unicode`, `invalid_ascii` or `unexpected`
+/// sees what the engine's own string matcher would have said, and the
+/// byte just past the offending span, so the message can quote the
+/// literal from its opening quote up to the fault.
+struct StringFault {
+    code: &'static str,
+    end: usize,
+}
+
+/// Scan a Zig double-quoted string body starting at byte `start`, just
+/// past the opening quote: the decoded value and the byte just past the
+/// closing quote. Shared by the `"..."` string matcher and the `.@"..."`
+/// identifier form.
+///
+/// The escape set is Zig's and nothing wider: `\n`, `\r`, `\t`, `\\`,
+/// `\'`, `\"`, `\xNN` and `\u{...}`. A `\u{...}` must name a Unicode
+/// SCALAR value, so the surrogate block is refused along with anything
+/// above U+10FFFF. Measured against the pinned zig 0.16.0 oracle, which
+/// answers `"\u{D800}"` and `.@"\u{D800}"` alike with "unicode escape does
+/// not correspond to a valid unicode scalar value"; a CHARACTER literal is
+/// an integer in Zig and does accept a surrogate, so `char_matcher`
+/// deliberately does not share this test. A run of `\xNN` escapes is a
+/// run of BYTES, as it is in Zig, decoded as UTF-8 once the run ends:
+/// `"\xe2\x82\xac"` is the euro sign, and an ill-formed sequence becomes
+/// one U+FFFD per maximal subpart, as `String::from_utf8_lossy` decodes
+/// it. A raw control character, a line end included, is not a string
+/// character.
+fn scan_zig_string(src: &str, start: usize) -> Result<(String, usize), StringFault> {
     let bytes = src.as_bytes();
     let mut out = String::new();
+    // The bytes of consecutive `\xNN` escapes, decoded together.
+    let mut pending: Vec<u8> = Vec::new();
+    let flush = |out: &mut String, pending: &mut Vec<u8>| {
+        if !pending.is_empty() {
+            out.push_str(&String::from_utf8_lossy(pending));
+            pending.clear();
+        }
+    };
+    let fault = |code: &'static str, end: usize| StringFault {
+        code,
+        end: end.min(bytes.len()),
+    };
+    let mut i = start;
     while i < bytes.len() {
         match bytes[i] {
-            b'"' => return Some((out, i + 1)),
-            b'\n' | b'\r' => return None,
-            b'\\' => match bytes.get(i + 1).copied()? {
-                b'x' => {
-                    let hex = src.get(i + 2..i + 4)?;
-                    if !is_hex(hex) {
-                        return None;
+            b'"' => {
+                flush(&mut out, &mut pending);
+                return Ok((out, i + 1));
+            }
+            b'\n' | b'\r' => return Err(fault("unterminated_string", i)),
+            c if c < 0x20 || c == 0x7f => return Err(fault("unprintable", i + 1)),
+            b'\\' => {
+                let Some(&escape) = bytes.get(i + 1) else {
+                    return Err(fault("unterminated_string", i + 1));
+                };
+                match escape {
+                    b'x' => match src.get(i + 2..i + 4).filter(|hex| is_hex(hex)) {
+                        Some(hex) => {
+                            pending.push(u8::from_str_radix(hex, 16).expect("two hex digits"));
+                            i += 4;
+                        }
+                        None => return Err(fault("invalid_ascii", i + 4)),
+                    },
+                    b'u' => {
+                        if bytes.get(i + 2) != Some(&b'{') {
+                            return Err(fault("invalid_unicode", i + 3));
+                        }
+                        let mut close = i + 3;
+                        while close < bytes.len() && bytes[close].is_ascii_hexdigit() {
+                            close += 1;
+                        }
+                        if close == i + 3 || bytes.get(close) != Some(&b'}') {
+                            return Err(fault("invalid_unicode", close + 1));
+                        }
+                        // A literal too long for a u32 is above U+10FFFF too.
+                        let scalar = u32::from_str_radix(&src[i + 3..close], 16)
+                            .ok()
+                            .filter(|&cp| is_scalar_value(cp));
+                        let Some(code_point) = scalar else {
+                            return Err(fault("invalid_unicode", close + 1));
+                        };
+                        flush(&mut out, &mut pending);
+                        out.push(char_of(code_point));
+                        i = close + 1;
                     }
-                    out.push(char_of(u32::from_str_radix(hex, 16).ok()?));
-                    i += 4;
-                }
-                b'u' => {
-                    if bytes.get(i + 2) != Some(&b'{') {
-                        return None;
+                    b'n' | b'r' | b't' | b'\\' | b'\'' | b'"' => {
+                        flush(&mut out, &mut pending);
+                        out.push(match escape {
+                            b'n' => '\n',
+                            b'r' => '\r',
+                            b't' => '\t',
+                            other => other as char,
+                        });
+                        i += 2;
                     }
-                    let close = src.get(i + 3..)?.find('}')? + i + 3;
-                    let hex = &src[i + 3..close];
-                    if !is_hex(hex) {
-                        return None;
-                    }
-                    let code_point = u32::from_str_radix(hex, 16).ok()?;
-                    // Zig: a string escape must name a Unicode SCALAR
-                    // value, so the surrogate block is refused along with
-                    // anything above U+10FFFF. Measured against the pinned
-                    // zig 0.16.0 oracle, which answers `.@"\u{D800}"`
-                    // with "unicode escape does not correspond to a valid
-                    // unicode scalar value". A CHARACTER literal is an
-                    // integer in Zig and does accept a surrogate, so
-                    // `char_matcher` deliberately does not share this test.
-                    if !is_scalar_value(code_point) {
-                        return None;
-                    }
-                    out.push(char_of(code_point));
-                    i = close + 1;
+                    _ => return Err(fault("unexpected", i + 2)),
                 }
-                b'n' => {
-                    out.push('\n');
-                    i += 2;
-                }
-                b'r' => {
-                    out.push('\r');
-                    i += 2;
-                }
-                b't' => {
-                    out.push('\t');
-                    i += 2;
-                }
-                e @ (b'\\' | b'\'' | b'"') => {
-                    out.push(e as char);
-                    i += 2;
-                }
-                _ => return None,
-            },
+            }
             _ => {
-                let c = src[i..].chars().next()?;
+                flush(&mut out, &mut pending);
+                let c = src[i..].chars().next().expect("a character boundary");
                 out.push(c);
                 i += c.len_utf8();
             }
         }
     }
-    None
+    Err(fault("unterminated_string", bytes.len()))
 }
 
 /// Whether `code_point` is a Unicode SCALAR value: at most U+10FFFF and
@@ -286,10 +336,36 @@ fn is_scalar_value(code_point: u32) -> bool {
 
 /// The character a code point names. A lone surrogate has no character,
 /// and folds to U+FFFD as it does throughout the engine. Reachable only
-/// from the character-literal path and from `\xNN`, which cannot name
-/// one: [`decode_zig_string`] refuses a surrogate escape outright.
+/// from the character-literal path: [`scan_zig_string`] refuses a
+/// surrogate escape outright, and decodes `\xNN` bytes as UTF-8.
 fn char_of(code_point: u32) -> char {
     char::from_u32(code_point).unwrap_or('\u{FFFD}')
+}
+
+// ---------------------------------------------------------------------------
+// zonString
+// ---------------------------------------------------------------------------
+
+/// A Zig double-quoted string, `"..."`, with Zig's escape set and no
+/// other. The engine's own string matcher is switched off
+/// (`string.lex: false`): its relaxed-JSON escapes (`\b`, `\f`, `\v`,
+/// `\/`, `\uXXXX`) and its acceptance of a surrogate `\u{...}` are not
+/// ZON, and the pinned zig oracle rejects every one of them. The token is
+/// `#ST`, as the engine's would be, and a fault carries the engine's code
+/// for it, quoting the literal from its opening quote to the fault.
+fn string_matcher(
+    lexer: &mut Lexer<'_>,
+    _rule: &mut Rule,
+    _context: &mut Context,
+) -> Option<Token> {
+    let remaining = lexer.remaining();
+    if remaining.as_bytes().first() != Some(&b'"') {
+        return None;
+    }
+    Some(match scan_zig_string(remaining, 1) {
+        Ok((value, end)) => emit(lexer, "#ST", TIN_ST, Value::String(value), end, false),
+        Err(fault) => bad(lexer, fault.code, 0, fault.end),
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -359,6 +435,9 @@ fn multi_string_matcher(
 /// A Zig character literal: `'x'`, `'\n'`, `'\x41'`, `'\u{1F600}'`. The
 /// value is the code point under `charAsNumber`, else a one-character
 /// string. Either way the token is `#NR`, as in the canonical runtime.
+/// Unlike a string, a character literal is an INTEGER in Zig: `'\xD8'` is
+/// 216 and `'\u{D800}'` is 55296, so neither goes through
+/// [`scan_zig_string`].
 fn char_matcher(lexer: &mut Lexer<'_>, char_as_number: bool) -> Option<Token> {
     let remaining = lexer.remaining();
     let bytes = remaining.as_bytes();
@@ -396,10 +475,9 @@ fn char_matcher(lexer: &mut Lexer<'_>, char_as_number: bool) -> Option<Token> {
                     code_point = 34;
                     i += 1;
                 }
-                b'0' => {
-                    code_point = 0;
-                    i += 1;
-                }
+                // `\0` is NOT a Zig escape (`'\x00'` and `'\u{0}'` are):
+                // the pinned zig 0.16.0 oracle answers `'\0'` with
+                // "invalid escape character: '0'".
                 b'x' => {
                     i += 1;
                     let hex = remaining.get(i..i + 2)?;

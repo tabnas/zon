@@ -22,3 +22,5 @@ input	expected	opts
 # reference rejects (see strict.tsv).
 .@"\\u{D7FF}"	"\ud7ff"
 .@"\\u{E000}"	"\ue000"
+# The same byte decoding as a string: `.@"\xe2\x82\xac"` is the euro sign.
+.@"\\xe2\\x82\\xac"	"\u20ac"
