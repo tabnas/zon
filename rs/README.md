@@ -126,8 +126,9 @@ its dependents, so `tabnas-zon` alone does not put `tabnas` or
 `tabnas-jsonic` in your extern prelude, and the examples above that name
 `tabnas_jsonic::make` would not resolve. Only `ZonError` is re-exported.
 The `json` checkout is needed because `tabnas-jsonic` takes it by path.
-The test suite additionally needs `https://github.com/tabnas/support`
-beside the repository, for the shared fixture runner.
+The test suite additionally needs `https://github.com/tabnas/support`,
+for the shared fixture runner, and `https://github.com/tabnas/debug`,
+for the composition test, beside the repository.
 
 ## Differences from the canonical TypeScript
 
@@ -203,9 +204,9 @@ language has no type for:
 
 ## Build and test
 
-The engine, the JSON core, the relaxed-JSON grammar and the fixture
-runner are path dependencies on sibling checkouts, so there is nothing to
-fetch by hand:
+The engine, the JSON core, the relaxed-JSON grammar, the fixture runner
+and the debug plugin are path dependencies on sibling checkouts, so there
+is nothing to fetch by hand:
 
 ```bash
 cargo test --all-targets && cargo test --doc
@@ -224,7 +225,9 @@ fails the suite, it never skips. Beside them are the in-language tests
 for what a fixture cannot express: big integers, infinities, NaN and
 negative zero, the error messages, plugin layering and re-use, the
 embedded grammar against its source, the shared default parser under
-threads, and that `parse` reuses its instance.
+threads, that `parse` reuses its instance, and that the grammar composes
+with `tabnas-debug` and reads back as the same structured model the
+TypeScript suite asserts.
 
 ## License
 

@@ -29,6 +29,11 @@ serde_json = { version = "1.0", features = ["preserve_order"] }
 # The shared fixture loader and runner: one loader in three languages, so
 # the rows mean the same thing in every runtime.
 tabnas-support = { path = "../../support/rs", features = ["serde_json"] }
+# The introspection plugin, for tests/debug_model_test.rs: the Rust half
+# of ts/test/debug-model.test.ts, which proves the grammar composes with
+# it and reads the same structured model. Tests only, and a sibling
+# checkout like the rest: clone https://github.com/tabnas/debug.
+tabnas-debug = { path = "../../debug/rs" }
 # The zig reference corpora spell a large float as its exact integer
 # digits (80 of them for `12_3.0E+77`). serde_json parses a long number
 # with best-effort precision by default and lands one ulp off, where

@@ -13,6 +13,7 @@ and this file only covers what is specific to this crate.
 | `src/number.rs` | the Zig number-literal scanner and the small `BigUint` the exactness rule needs |
 | `tests/parity_test.rs` | every `../test/spec/*.tsv` fixture through `tabnas_support::Runner::new_with_row`, a fresh parser per row from its `opts` column |
 | `tests/zigzon_test.rs` | the two zig reference corpora, fetched first when absent; fails, never skips, when a corpus is missing |
+| `tests/debug_model_test.rs` | the grammar composed with `tabnas-debug`, and the structured model it reads: the Rust half of `ts/test/debug-model.test.ts` |
 | `tests/perf_test.rs` | `parse()` reuses its instance; reuse beats rebuild-per-parse |
 | `tests/zon_test.rs` | in-language behaviour: the `go/zon_test.go` cases, the values with no JSON spelling, error codes and messages, the API, the embedded grammar, threads |
 | `tests/version_test.rs` | Cargo.toml == `VERSION` == ts/package.json |
@@ -21,9 +22,11 @@ and this file only covers what is specific to this crate.
 
 Crate `tabnas-zon`, library `tabnas_zon`. The engine (`tabnas`), the
 relaxed-JSON grammar (`tabnas-jsonic`, which itself takes `tabnas-json`
-by path) and the fixture runner (`tabnas-support`, dev only) are **path
-dependencies on sibling checkouts** (`../../parser/rs`, `../../jsonic/rs`,
-`../../json/rs`, `../../support/rs`). None is published.
+by path), the fixture runner (`tabnas-support`, dev only) and the
+introspection plugin (`tabnas-debug`, dev only) are **path dependencies
+on sibling checkouts** (`../../parser/rs`, `../../jsonic/rs`,
+`../../json/rs`, `../../support/rs`, `../../debug/rs`). None is
+published.
 
 ```bash
 cargo build --all-targets

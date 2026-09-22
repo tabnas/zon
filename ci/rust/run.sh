@@ -6,17 +6,18 @@
 # The engine, the relaxed-JSON grammar (which takes the JSON core by path
 # itself) and the fixture runner are PATH DEPENDENCIES on sibling checkouts
 # (rs/Cargo.toml: `tabnas = { path = "../../parser/rs" }`,
-# `tabnas-jsonic = { path = "../../jsonic/rs" }`, and as a dev-dependency
-# `tabnas-support = { path = "../../support/rs" }`). None is published, so
+# `tabnas-jsonic = { path = "../../jsonic/rs" }`, and as dev-dependencies
+# `tabnas-support = { path = "../../support/rs" }` and
+# `tabnas-debug = { path = "../../debug/rs" }`). None is published, so
 # there is no registry version to fall back on. Clone
 # https://github.com/tabnas/parser, https://github.com/tabnas/json,
-# https://github.com/tabnas/jsonic and https://github.com/tabnas/support
-# next to this repo before running.
+# https://github.com/tabnas/jsonic, https://github.com/tabnas/support and
+# https://github.com/tabnas/debug next to this repo before running.
 set -euo pipefail
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 
-for SIBLING in parser json jsonic support; do
+for SIBLING in parser json jsonic support debug; do
   if [[ ! -f "$ROOT/../$SIBLING/rs/Cargo.toml" ]]; then
     echo "no $SIBLING checkout at $ROOT/../$SIBLING/rs" >&2
     echo "clone https://github.com/tabnas/$SIBLING as a sibling of $(basename "$ROOT")" >&2
@@ -76,7 +77,8 @@ fi
 #
 # So the whole resolution is compared, before and after cargo runs, with one
 # exemption: the recorded version of each sibling path crate (the engine,
-# the JSON core, the jsonic grammar and the fixture runner). Those entries legitimately move
+# the JSON core, the jsonic grammar, the fixture runner and the debug
+# plugin). Those entries legitimately move
 # whenever the sibling checkouts do, and exempting exactly them is what
 # makes a full comparison usable here when blanket `--locked` is not.
 lock_without_sibling_versions() {
@@ -86,6 +88,7 @@ lock_without_sibling_versions() {
     /^name = "tabnas-json"$/           { sib = 1 }
     /^name = "tabnas-jsonic"$/         { sib = 1 }
     /^name = "tabnas-support"$/        { sib = 1 }
+    /^name = "tabnas-debug"$/          { sib = 1 }
     sib && /^version = /               { print "version = \"<sibling>\""; next }
                                        { print }
   ' "$1"
