@@ -60,7 +60,7 @@ registrations chain (`new Tabnas().use(jsonic).use(Zon, opts)`). The
 plugin merges `options` over `Zon.defaults`, installs the embedded ZON
 grammar, and re-applies its jsonic option overrides (struct/tuple
 tokens, `=` separator, identifier keys, Zig escapes, ZON comments, the
-strict Zig number lexer, and the five custom lex matchers).
+strict Zig number lexer, and the six custom lex matchers).
 
 The instance is reusable and stateless across parses; build it once
 and reuse it. Building the grammar dominates a parse, so do not
@@ -196,6 +196,7 @@ A trailing comma before `}` is allowed in both structs and tuples.
 | Binary | `0b101010` | `42` |
 | Hex float | `0x1.8p1` | `3` |
 | Exponent | `1e5`, `12_3.0E+77` | `100000`, `1.23e+79` |
+| Empty fraction | `1.e3`, `0xF.p1` | `1000`, `30` |
 | Digit separator | `1_000_000` | `1000000` |
 | Infinity / NaN | `inf`, `-inf`, `nan` | `Infinity`, `-Infinity`, `NaN` |
 | Big integer | `36893488147419103231` | `36893488147419103231n` (a `bigint`) |
@@ -225,8 +226,12 @@ returned as a `bigint` rather than silently rounded; everything else is a
 ### Strings
 
 Double-quoted strings only (single quotes are reserved for char
-literals). Zig-flavoured escapes are recognised: `\n`, `\r`, `\t`,
-`\\`, `\"`, `\'`. Unknown escapes are an error.
+literals). The escapes are Zig's and no other: `\n`, `\r`, `\t`, `\\`,
+`\"`, `\'`, a byte `\xNN`, and `\u{...}` naming a Unicode scalar value
+(so a surrogate such as `\u{D800}` is an error). A run of `\xNN` escapes
+is decoded as UTF-8 once it ends: `"\xe2\x82\xac"` is the euro sign.
+Unknown escapes, JSON's `\uXXXX` among them, and raw control characters
+are errors.
 
 ```
 "hello"                 => 'hello'
@@ -250,8 +255,9 @@ between the lines, so **blank lines inside the run continue the literal**
 ### Character literals
 
 Single-quoted Zig char literals: a single character, or an escape
-`'\n'` `'\r'` `'\t'` `'\\'` `'\''` `'\"'` `'\0'`, a hex escape
-`'\xNN'`, or a Unicode escape `'\u{...}'`. By default the result is a
+`'\n'` `'\r'` `'\t'` `'\\'` `'\''` `'\"'`, a hex escape `'\xNN'`, or a
+Unicode escape `'\u{...}'` (`'\0'` is not a Zig escape; NUL is `'\x00'`).
+By default the result is a
 one-character string; with `charAsNumber: true` it is the numeric code
 point.
 

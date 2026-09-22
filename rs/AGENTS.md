@@ -8,11 +8,12 @@ and this file only covers what is specific to this crate.
 
 | Path | |
 |---|---|
-| `src/lib.rs` | the embedded grammar text, the option overrides document, `ZonOptions`, the two lifecycle hooks, `zon`, `plugin`, `make`, `make_with`, `parse`, `parse_with` |
-| `src/lex.rs` | the five lex matchers (`zonDot`, `zonMultiString`, `zonChar`, `zonNumber`, `zonDocComment`) |
+| `src/lib.rs` | the embedded grammar text, the option overrides document, `ZonOptions`, the two lifecycle hooks, `zon`, `plugin`, `make`, `make_with`, `parse`, `parse_with`, and the unit tests that hold the overrides to `ts/src/zon.ts` |
+| `src/lex.rs` | the six lex matchers (`zonDot`, `zonMultiString`, `zonChar`, `zonNumber`, `zonDocComment`, `zonString`) and the Zig string scanner they share with the `.@"..."` form |
 | `src/number.rs` | the Zig number-literal scanner and the small `BigUint` the exactness rule needs |
 | `tests/parity_test.rs` | every `../test/spec/*.tsv` fixture through `tabnas_support::Runner::new_with_row`, a fresh parser per row from its `opts` column |
 | `tests/zigzon_test.rs` | the two zig reference corpora, fetched first when absent; fails, never skips, when a corpus is missing |
+| `tests/debug_model_test.rs` | the grammar composed with `tabnas-debug`, and the structured model it reads: the Rust half of `ts/test/debug-model.test.ts` |
 | `tests/perf_test.rs` | `parse()` reuses its instance; reuse beats rebuild-per-parse |
 | `tests/zon_test.rs` | in-language behaviour: the `go/zon_test.go` cases, the values with no JSON spelling, error codes and messages, the API, the embedded grammar, threads |
 | `tests/version_test.rs` | Cargo.toml == `VERSION` == ts/package.json |
@@ -21,9 +22,11 @@ and this file only covers what is specific to this crate.
 
 Crate `tabnas-zon`, library `tabnas_zon`. The engine (`tabnas`), the
 relaxed-JSON grammar (`tabnas-jsonic`, which itself takes `tabnas-json`
-by path) and the fixture runner (`tabnas-support`, dev only) are **path
-dependencies on sibling checkouts** (`../../parser/rs`, `../../jsonic/rs`,
-`../../json/rs`, `../../support/rs`). None is published.
+by path), the fixture runner (`tabnas-support`, dev only) and the
+introspection plugin (`tabnas-debug`, dev only) are **path dependencies
+on sibling checkouts** (`../../parser/rs`, `../../jsonic/rs`,
+`../../json/rs`, `../../support/rs`, `../../debug/rs`). None is
+published.
 
 ```bash
 cargo build --all-targets
@@ -75,11 +78,26 @@ the constant and the file on disk differ.
 
 ## The lex matchers
 
-All five are `imperative_lex_match_ref` registrations named from the
+All six are `imperative_lex_match_ref` registrations named from the
 document's `options.lex.match` (`"make": "@zonDot"` and so on), with the
-canonical orders: 1e5 to 1.4e5, below the engine's first built-in band,
-so `zonDot` owns the `.` prefix ahead of the fixed-token matcher and
-`zonDocComment` sees `//!` and `///` before the comment matcher eats them.
+canonical orders: 1e5 to 1.5e5, below the engine's first built-in band,
+so `zonDot` owns the `.` prefix ahead of the fixed-token matcher,
+`zonDocComment` sees `//!` and `///` before the comment matcher eats them,
+and `zonString` owns `"` (the engine's string lexer is off besides,
+`string.lex: false`, so nothing else produces an `#ST` from a quote).
+
+`scan_zig_string` is the one Zig string scanner, shared by `zonString`
+and the `.@"..."` identifier form. Its escape set is Zig's and no wider,
+a `\u{...}` must name a Unicode SCALAR value (the surrogate block is
+refused, as the pinned oracle refuses it), a `\xNN` run is bytes decoded
+as UTF-8 once the run ends (`String::from_utf8_lossy`, one U+FFFD per
+maximal subpart, which is also what `TextDecoder` and the Go
+`lossyUTF8` give), and a fault carries the ENGINE's error code
+(`unterminated_string`, `unprintable`, `invalid_unicode`,
+`invalid_ascii`, `unexpected`) so `test/spec/strings.tsv` can pin the
+code in all three runtimes. A CHARACTER literal is an integer in Zig and
+does accept a surrogate, so `char_matcher` deliberately keeps the wider
+`<= 0x10FFFF` bound and does not share the scanner.
 
 They work on `lexer.remaining()` by byte index and only ever slice at
 ASCII positions or whole decoded characters, so a byte index is always a
@@ -93,6 +111,35 @@ message can quote it.
 `zonChar` bakes `charAsNumber` into its closure, as the TypeScript
 `buildZonCharMatcher(charAsNumber)` does, so the option is read once at
 install time.
+
+## The option overrides
+
+`options_document()` is the `grammarDef.options` of the canonical
+plugin, attached to the grammar document so rules and options apply
+atomically. AGENTS.md rule 4 requires the overrides to exist in all
+three runtimes and stay in step, and nothing measured that until
+`the_option_override_surface_is_the_canonical_one` (a unit test in
+`src/lib.rs`): it reads the literal out of `ts/src/zon.ts` and compares
+the top-level keys, the error catalogue, the fixed-token remap and the
+six matcher names WITH their orders, so an override added or renamed
+there without a counterpart here goes red rather than drifting.
+
+Two differences are deliberate, and
+`the_two_override_differences_are_the_documented_ones` asserts both, so
+neither survives as prose alone:
+
+- `value.def` restates `true` and `false` and leaves `null` to the
+  engine's own definition. A serialized `"val": null` reads as "no
+  value" rather than as the null value, so restating it would switch the
+  keyword off.
+- There is no `config` block. The canonical plugin also calls
+  `tn.options` with a `config.modify` hook that hangs human token
+  descriptions off `cfg.tokenDesc`, which `@tabnas/railroad` reads for a
+  diagram legend. This engine's config has no such field, and the Rust
+  railroad crate takes the descriptions from its own
+  `ExtractOptions::token_desc`, so there is nothing for the plugin to
+  attach. `README.md` records it as a difference; no parse result
+  depends on it.
 
 ## Numbers
 
@@ -178,8 +225,19 @@ test measures.
 `zigzon_test.rs` runs `scripts/fetch-zigzon.sh` (through `bash`) when
 either `cases.json` is missing and the host is one the script has a
 pinned zig toolchain for, then grades both corpora with the pinned census
-(184/44 and 48/74). A missing corpus FAILS the test; the only skip is the
+(184/44 and 68/95). A missing corpus FAILS the test; the only skip is the
 platform one, and it names the platform. Do not widen it.
+
+Those two numbers live in `ZIGZON_CENSUS` and `STRICTNESS_CENSUS` in that
+file, and `the_corpus_census_in_the_docs_is_the_one_the_runners_pin` holds
+everything else to them: the literals in `ts/test/zigzon.test.ts` and
+`go/zigzon_test.go`, the corpus tables in `README.md` and `AGENTS.md`
+(document count included, which must be the census summed), and every
+other `N / M` in every markdown page in the repository. The last is
+deliberately wide, because the line in `test/AGENTS.md` went stale twice
+while the corpus grew and nothing went red. Moving the census means
+editing the two constants and re-running; a ratio that is not a census
+goes in words, not in a slash.
 
 ## The docs are gated
 

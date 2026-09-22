@@ -26,6 +26,7 @@ This directory exists because session credentials cannot write
   build, the shared fixtures, the zig reference corpora, doctests, clippy,
   and a lockfile check that exempts only the sibling crates' versions) on
   the MSRV pinned in `rs/Cargo.toml`. It clones `tabnas/parser`,
-  `tabnas/json`, `tabnas/jsonic` and `tabnas/support` beside the checkout,
-  because the crate takes them as path dependencies and none is published.
+  `tabnas/json`, `tabnas/jsonic`, `tabnas/support` and `tabnas/debug`
+  beside the checkout, because the crate takes them as path dependencies
+  and none is published.
   `make test-rs` is the fast local loop; the script is what CI would run.

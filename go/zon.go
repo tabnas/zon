@@ -192,11 +192,11 @@ func Zon(j *jsonic.Jsonic, options map[string]any) error {
 			// ZON field names are identifiers (.ident or .@"...") only.
 			"KEY": {"#TX"},
 		},
+		// The engine's string matcher is off: `"..."` is lexed by the
+		// zonString matcher below with Zig's escape set, which is narrower
+		// than the relaxed-JSON one and refuses a surrogate `\u{...}`.
 		String: &jsonic.StringOptions{
-			Chars:        "\"",
-			MultiChars:   "",
-			Escape:       map[string]string{"n": "\n", "r": "\r", "t": "\t", "\\": "\\", "\"": "\"", "'": "'"},
-			AllowUnknown: boolPtr(false),
+			Lex: boolPtr(false),
 		},
 		// jsonic's relaxed number lexer accepts `+1`, `.5`, `5.`, `0123`,
 		// `1__0` and friends, none of which are ZON. The zonNumber matcher
@@ -242,6 +242,7 @@ func Zon(j *jsonic.Jsonic, options map[string]any) error {
 				// Must out-order jsonic's comment matcher so `//!` and `///`
 				// are rejected instead of eaten as ordinary line comments.
 				"zonDocComment": {Order: 140000, Make: buildZonDocCommentMatcher()},
+				"zonString":     {Order: 150000, Make: buildZonStringMatcher()},
 			},
 		},
 	}
@@ -420,84 +421,214 @@ func zonBad(lex *jsonic.Lex, code, src string, start, end int) *jsonic.Token {
 
 // decodeZigString decodes a Zig double-quoted string body starting at i (just
 // past the opening quote), returning the value, the index just past the
-// closing quote, and whether the literal was well formed. Used for `.@"..."`
-// escaped identifiers; ordinary string literals are lexed by jsonic.
+// closing quote, and whether the literal was well formed. The `.@"..."`
+// identifier form, which Zig lexes with the same rules as a string.
 func decodeZigString(src string, i int) (string, int, bool) {
+	val, end, fault := scanZigString(src, i)
+	return val, end, fault == nil
+}
+
+// stringFault says why a `"..."` body failed to decode: the ENGINE's error
+// code for the same fault (unterminated_string, unprintable,
+// invalid_unicode, invalid_ascii, unexpected), so a caller branching on it
+// sees what the engine's own string matcher would have said, and the index
+// just past the offending span, so the message can quote the literal from
+// its opening quote up to the fault.
+type stringFault struct {
+	code string
+	end  int
+}
+
+// scanZigString scans a Zig double-quoted string body starting at start
+// (just past the opening quote): the decoded value and the index just past
+// the closing quote, or the fault. Shared by the `"..."` string matcher and
+// the `.@"..."` identifier form.
+//
+// The escape set is Zig's and nothing wider: `\n`, `\r`, `\t`, `\\`, `\'`,
+// `\"`, `\xNN` and `\u{...}`. A `\u{...}` must name a Unicode SCALAR value,
+// so the surrogate block is refused along with anything above U+10FFFF.
+// Measured against the pinned zig 0.16.0 oracle, which answers `"\u{D800}"`
+// and `.@"\u{D800}"` alike with "unicode escape does not correspond to a
+// valid unicode scalar value"; a CHARACTER literal is an integer in Zig and
+// does accept a surrogate, so the char matcher deliberately does not share
+// this test. A run of `\xNN` escapes is a run of BYTES, as it is in Zig,
+// decoded as UTF-8 once the run ends: `"\xe2\x82\xac"` is the euro sign,
+// and an ill-formed sequence becomes one U+FFFD per maximal subpart (see
+// lossyUTF8). A raw control character, a line end included, is not a
+// string character.
+func scanZigString(src string, start int) (string, int, *stringFault) {
 	var b strings.Builder
+	// The bytes of consecutive `\xNN` escapes, decoded together.
+	var pending []byte
+	flush := func() {
+		if len(pending) > 0 {
+			b.WriteString(lossyUTF8(pending))
+			pending = pending[:0]
+		}
+	}
+	fault := func(code string, end int) (string, int, *stringFault) {
+		if end > len(src) {
+			end = len(src)
+		}
+		return "", end, &stringFault{code: code, end: end}
+	}
+	i := start
 	for i < len(src) {
 		c := src[i]
-		if c == '"' {
-			return b.String(), i + 1, true
-		}
-		if c == '\n' || c == '\r' {
-			return "", i, false
-		}
-		if c != '\\' {
+		switch {
+		case c == '"':
+			flush()
+			return b.String(), i + 1, nil
+		case c == '\n' || c == '\r':
+			return fault("unterminated_string", i)
+		case c < 0x20 || c == 0x7f:
+			return fault("unprintable", i+1)
+		case c != '\\':
+			flush()
 			b.WriteByte(c)
 			i++
 			continue
 		}
 		if i+1 >= len(src) {
-			return "", i, false
+			return fault("unterminated_string", i+1)
 		}
 		switch e := src[i+1]; e {
 		case 'n':
+			flush()
 			b.WriteByte('\n')
 			i += 2
 		case 'r':
+			flush()
 			b.WriteByte('\r')
 			i += 2
 		case 't':
+			flush()
 			b.WriteByte('\t')
 			i += 2
 		case '\\', '\'', '"':
+			flush()
 			b.WriteByte(e)
 			i += 2
 		case 'x':
 			if i+4 > len(src) || !isHex(src[i+2:i+4]) {
-				return "", i, false
+				return fault("invalid_ascii", i+4)
 			}
-			n, err := strconv.ParseInt(src[i+2:i+4], 16, 32)
+			n, err := strconv.ParseUint(src[i+2:i+4], 16, 8)
 			if err != nil {
-				return "", i, false
+				return fault("invalid_ascii", i+4)
 			}
-			b.WriteByte(byte(n))
+			pending = append(pending, byte(n))
 			i += 4
 		case 'u':
 			if i+2 >= len(src) || src[i+2] != '{' {
-				return "", i, false
+				return fault("invalid_unicode", i+3)
 			}
-			end := strings.IndexByte(src[i+3:], '}')
-			if end < 0 {
-				return "", i, false
+			close := i + 3
+			for close < len(src) && isHex(src[close:close+1]) {
+				close++
 			}
-			end += i + 3
-			hex := src[i+3 : end]
-			if !isHex(hex) {
-				return "", i, false
+			if close == i+3 || close >= len(src) || src[close] != '}' {
+				return fault("invalid_unicode", close+1)
 			}
-			n, err := strconv.ParseInt(hex, 16, 64)
-			// Zig: a STRING escape must name a Unicode SCALAR value, so
-			// the surrogate block is refused along with anything above
-			// U+10FFFF. Measured against the pinned zig 0.16.0 oracle,
-			// which answers `.@"\u{D800}"` with "unicode escape does not
-			// correspond to a valid unicode scalar value". A CHARACTER
-			// literal is an integer in Zig and does accept a surrogate,
-			// so the char matcher deliberately omits this test.
+			// A literal too long for a uint64 is above U+10FFFF too.
+			n, err := strconv.ParseUint(src[i+3:close], 16, 64)
 			if err != nil || n > 0x10ffff || (0xd800 <= n && n <= 0xdfff) {
-				return "", i, false
+				return fault("invalid_unicode", close+1)
 			}
-			if n == 0 {
-				b.WriteByte(0)
-			} else {
-				b.WriteRune(rune(n))
-			}
-			i = end + 1
+			flush()
+			b.WriteRune(rune(n))
+			i = close + 1
 		default:
-			return "", i, false
+			return fault("unexpected", i+2)
 		}
 	}
-	return "", i, false
+	return fault("unterminated_string", len(src))
+}
+
+// lossyUTF8 decodes bytes as UTF-8, substituting U+FFFD for each MAXIMAL
+// SUBPART of an ill-formed sequence (Unicode, "U+FFFD Substitution of
+// Maximal Subparts"): the rule TextDecoder in the canonical runtime and
+// String::from_utf8_lossy in the Rust port apply, so a `\xe2\x82` cut short
+// is ONE replacement character in all three. utf8.DecodeRune alone returns
+// one RuneError per byte, which would be two.
+func lossyUTF8(b []byte) string {
+	var sb strings.Builder
+	for len(b) > 0 {
+		r, size := utf8.DecodeRune(b)
+		if r == utf8.RuneError && size == 1 {
+			size = invalidPrefixLen(b)
+		}
+		sb.WriteRune(r)
+		b = b[size:]
+	}
+	return sb.String()
+}
+
+// invalidPrefixLen is the length of the maximal subpart of the ill-formed
+// sequence at the head of b: the lead byte plus every continuation byte that
+// could still have completed it. A byte that leads nothing is a subpart of
+// one.
+func invalidPrefixLen(b []byte) int {
+	c := b[0]
+	need := 0
+	lo, hi := byte(0x80), byte(0xbf)
+	switch {
+	case 0xc2 <= c && c <= 0xdf:
+		need = 1
+	case c == 0xe0:
+		need, lo = 2, 0xa0
+	case 0xe1 <= c && c <= 0xec, c == 0xee, c == 0xef:
+		need = 2
+	case c == 0xed:
+		need, hi = 2, 0x9f
+	case c == 0xf0:
+		need, lo = 3, 0x90
+	case 0xf1 <= c && c <= 0xf3:
+		need = 3
+	case c == 0xf4:
+		need, hi = 3, 0x8f
+	default:
+		return 1
+	}
+	n := 1
+	for n <= need && n < len(b) {
+		if n == 1 {
+			if b[n] < lo || b[n] > hi {
+				break
+			}
+		} else if b[n] < 0x80 || b[n] > 0xbf {
+			break
+		}
+		n++
+	}
+	return n
+}
+
+// Zig double-quoted strings, `"..."`, with Zig's escape set and no other.
+// The engine's own string matcher is switched off (String.Lex false): its
+// relaxed-JSON escapes (`\b`, `\f`, `\v`, `\/`, `\uXXXX`) and its acceptance
+// of a surrogate `\u{...}` are not ZON, and the pinned zig oracle rejects
+// every one of them. The token is `#ST`, as the engine's would be, and a
+// fault carries the engine's code for it.
+func buildZonStringMatcher() jsonic.MakeLexMatcher {
+	return func(_ *jsonic.LexConfig, _ *jsonic.Options) jsonic.LexMatcher {
+		return func(lex *jsonic.Lex, _ *jsonic.Rule) *jsonic.Token {
+			pnt := lex.Cursor()
+			src := lex.Src
+			sI := pnt.SI
+			if sI >= len(src) || src[sI] != '"' {
+				return nil
+			}
+			val, end, fault := scanZigString(src, sI+1)
+			if fault != nil {
+				return zonBad(lex, fault.code, src, sI, fault.end)
+			}
+			tkn := lex.Token("#ST", jsonic.TinST, val, src[sI:end])
+			pnt.SI = end
+			pnt.CI += utf8.RuneCountInString(src[sI:end])
+			return tkn
+		}
+	}
 }
 
 // peekIsMapOpen returns true if the source position inside `.{ ... }` begins
@@ -659,6 +790,8 @@ func buildZonMultiStringMatcher() jsonic.MakeLexMatcher {
 
 // Zig character literal: `'x'`, `'\n'`, `'\x41'`, `'\u{1F600}'`.
 // Produces a numeric code point (if charAsNumber) or a one-char string.
+// Unlike a string, a character literal is an INTEGER in Zig: `'\xD8'` is
+// 216 and `'\u{D800}'` is 55296, so neither goes through scanZigString.
 func buildZonCharMatcher(charAsNumber bool) jsonic.MakeLexMatcher {
 	return func(_ *jsonic.LexConfig, _ *jsonic.Options) jsonic.LexMatcher {
 		return func(lex *jsonic.Lex, _ *jsonic.Rule) *jsonic.Token {
@@ -700,9 +833,9 @@ func buildZonCharMatcher(charAsNumber bool) jsonic.MakeLexMatcher {
 				case '"':
 					codepoint = '"'
 					i++
-				case '0':
-					codepoint = 0
-					i++
+				// `\0` is NOT a Zig escape (`'\x00'` and `'\u{0}'` are): the
+				// pinned zig 0.16.0 oracle answers `'\0'` with "invalid escape
+				// character: '0'".
 				case 'x':
 					i++
 					if i+2 > len(src) {
@@ -955,11 +1088,14 @@ func scanZonNumber(src string, start int) (zonNumScan, bool) {
 		if i+1 < len(src) {
 			after := src[i+1]
 			dv := digitVal(after)
-			// A `.` only starts a fraction when a digit of this base (or, for
-			// hex, the `p` exponent) follows; otherwise the number ends here
-			// and the stray `.` is a parse error (`1.`, `0.1.2`).
+			// A `.` only starts a fraction when a digit of this base, or this
+			// base's exponent letter, follows; otherwise the number ends here
+			// and the stray `.` is a parse error (`1.`, `0.1.2`). The
+			// fraction itself may then be EMPTY: zig reads `1.e3` and
+			// `0xF.p1` as one float token each.
 			startsFrac = (dv >= 0 && dv < base) ||
-				(base == 16 && (after == 'p' || after == 'P'))
+				(base == 16 && (after == 'p' || after == 'P')) ||
+				(base == 10 && (after == 'e' || after == 'E'))
 		}
 		if startsFrac {
 			if base != 10 && base != 16 {

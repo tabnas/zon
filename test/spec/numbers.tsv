@@ -14,6 +14,16 @@ input	expected	opts
 0e0	0
 0.5e1_0	5000000000
 12_3.0E+77	1.23e+79
+# A decimal float may leave the fraction empty when an exponent follows,
+# exactly as a hex float may (`0xF.p1` below). Verified against zig 0.16.0:
+# `1.` alone is a number and a stray `.`, but `1.e3` is one float token.
+1.e3	1000
+1.E3	1000
+1.e+3	1000
+1.e-3	0.001
+0.e3	0
+1_0.e3	10000
+1.e1_0	10000000000
 # Hexadecimal floats: the `p` exponent is optional, and either side of the
 # radix point may be empty (all four forms verified against zig 0.16.0).
 0x1p4	16

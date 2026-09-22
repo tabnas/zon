@@ -160,6 +160,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tabnas-debug"
+version = "0.3.6"
+dependencies = [
+ "indexmap",
+ "serde",
+ "serde_json",
+ "tabnas",
+]
+
+[[package]]
 name = "tabnas-json"
 version = "0.5.8"
 dependencies = [
@@ -194,6 +204,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tabnas",
+ "tabnas-debug",
  "tabnas-jsonic",
  "tabnas-support",
 ]

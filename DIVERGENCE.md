@@ -5,7 +5,7 @@ the Rust port in [`rs/`](rs/) track it. This file records where a runtime
 produces a **different result for the same input**, and why that
 difference is allowed to stand.
 
-Every row below was MEASURED, on 2026-09-21, by running the input in its
+Every row below was MEASURED, on 2026-09-22, by running the input in its
 first column through all three implementations: `ts/src/zon.ts` compiled
 against `@tabnas/parser` 0.10.0 and `@tabnas/jsonic` 0.6.7, the `go/`
 package as it stands, and `tabnas-zon` 0.5.6 against the sibling
@@ -63,7 +63,6 @@ by `big_integers_keep_their_exact_value` and
 | input | TypeScript | Go | Rust |
 |---|---|---|---|
 | `'\u{D800}'` | `"\uD800"` | `U+FFFD` | `U+FFFD` |
-| `"\u{D800}"` | `"\uD800"` | `U+FFFD` | `U+FFFD` |
 | `'\u{D800}'` with `charAsNumber` | `55296` | `55296` | `55296` |
 
 **Inherited, and not Rust-only.** A JavaScript string is a sequence of
@@ -72,41 +71,40 @@ a Rust `String` hold Unicode scalar values and cannot. Both ports
 substitute U+FFFD, as the engine does throughout, and as
 `@tabnas/parser`'s own `DIVERGENCE.md` records for the engine. The code
 point itself survives under `charAsNumber`, where the value is a number
-rather than a string, which the last row measures.
+rather than a string, which the second row measures.
 
-The two rows that produce a string get there by different routes, and
-the host string type is what folds each. `'\u{D800}'` is this plugin's
-character matcher, which is handed the code point and asks for a
-one-character string: `char::from_u32` has no answer in Rust and
-`string(rune(0xD800))` has none in Go, so both give U+FFFD.
-`"\u{D800}"` never reaches this plugin at all, being lexed by jsonic's
-own string matcher, which substitutes the same character.
-
-A fourth row, `.@"\u{D800}"`, USED to sit here with the same three
-answers. It was not a divergence at all but a shared defect: a
-`\u{...}` escape inside a `.@"..."` identifier is decoded by this
-plugin, zig requires it to name a Unicode SCALAR value, and all three
-runtimes were testing only `cp <= 0x10FFFF`. The pinned zig 0.16.0
-oracle answers `.@"\u{D800}"` with "unicode escape does not correspond
-to a valid unicode scalar value". All three now reject it as
-`zon_ident`, so there is nothing left to record; `test/spec/strict.tsv`
-and `test/spec/errors.tsv` pin the rejection, `test/spec/enums.tsv`
-pins U+D7FF and U+E000 either side of the block, and
-`test/strictness/inputs.txt` puts the boundary in front of the oracle
-itself. A CHARACTER literal is an integer in zig and DOES accept a
-surrogate (the oracle answers `'\u{D800}'` with 55296), which is why
-the first and third rows above survive and why the character matcher
+The one route to a string here is this plugin's character matcher,
+which is handed the code point and asks for a one-character string:
+`char::from_u32` has no answer in Rust and `string(rune(0xD800))` has
+none in Go, so both give U+FFFD. A CHARACTER literal is an integer in
+zig and DOES accept a surrogate (the pinned zig 0.16.0 oracle answers
+`'\u{D800}'` with 55296), which is why the character matcher
 deliberately keeps the wider bound.
 
+Two more rows USED to sit here with the same three answers,
+`"\u{D800}"` and `.@"\u{D800}"`. Neither was a divergence; both were
+shared defects. Zig requires a `\u{...}` escape in a string or an
+identifier to name a Unicode SCALAR value, and the oracle answers both
+with "unicode escape does not correspond to a valid unicode scalar
+value". The identifier was decoded by this plugin, which tested only
+`cp <= 0x10FFFF`; the string never reached the plugin at all, being
+lexed by jsonic's own string matcher with the relaxed-JSON escape set.
+The plugin now lexes `"..."` itself (`zonString`, in all three
+runtimes, with the engine's string lexer off), and every runtime
+rejects both: `zon_ident` for the identifier and the engine's
+`invalid_unicode` for the string, so there is nothing left to record.
+`test/spec/strict.tsv` and `test/spec/strings.tsv` pin the rejections,
+`test/spec/enums.tsv` and `strings.tsv` pin U+D7FF and U+E000 either
+side of the block, and `test/strictness/inputs.txt` puts the boundary
+in front of the oracle itself.
+
 Owned by the engine ports. Pinned in Rust by
-`a_lone_surrogate_folds_to_the_replacement_character`, which covers
-every row above AND asserts the `zon_ident` rejection of the row that
-left. Two shared fixtures now carry a surrogate, because all three
-runtimes agree on them: `chars.tsv` takes `'\u{D800}'` under
-`charAsNumber` (the third row), and `strict.tsv` takes the identifier
-rejection. The first two rows still cannot be fixtures, because a
-fixture row holds one expected value for all three runtimes and those
-are exactly where the three do not agree.
+`a_lone_surrogate_folds_to_the_replacement_character`, which covers both
+rows above AND asserts the rejection of the two rows that left.
+`chars.tsv` carries the second row as a shared fixture, because all
+three runtimes agree on it. The first row cannot be one, because a
+fixture row holds one expected value for all three runtimes and that is
+exactly where the three do not agree.
 
 ## Nesting past 127 levels is refused in Rust
 
@@ -157,7 +155,12 @@ string.
 
 Owned by the canonical TypeScript: the repair is to count the token's
 rows there, after which this port matches with no change. Pinned by
-`a_multi_line_string_leaves_the_column_honest`.
+`a_multi_line_string_leaves_the_column_honest`, which asserts the code,
+the row and the column AND the message, the offending token and the
+quoted source line, so that a formatter or source-excerpt regression
+fails the pin rather than leaving this entry stale behind a green one.
+The column is the one cell the entry leaves to prose, and it is the
+cell the test asserts as 8.
 
 ## An exponent past what the runtime's integer parse holds
 
@@ -199,9 +202,13 @@ of digits:
   `math.MaxInt32`, so it falls to `1e2147483647` and `1e2147483648`.
   The sign is applied after the parse (`expSign * n`), so a negative
   exponent has the same magnitude bound and not the extra step
-  `math.MinInt` would allow. A 32-bit build also reports a shorter
-  span: the quoted source is `1e` rather than the whole literal, because
-  the failure is found before the digits are consumed.
+  `math.MinInt` would allow. A rejected NEGATIVE exponent also quotes a
+  shorter span, on either word size: the failure span is measured with
+  `scanNumTokenEnd`, which stops at the sign, so the message names `1e`
+  or `0x1p` rather than the whole literal, where a rejected positive
+  exponent quotes the literal in full. An earlier version of this entry
+  put the shorter span down to the 32-bit build; it was measured on
+  both and belongs to the sign.
 - **TypeScript** reads the exponent with `parseInt` and then spells the
   result back into the literal it hands to `parseFloat`. The boundary is
   where `String(n)` switches to exponent form, which is `1e21`, not a
@@ -224,13 +231,19 @@ repairs move that runtime TOWARDS the Rust column and towards the zig
 oracle, so neither costs this port anything.
 
 Pinned by `an_absurd_decimal_exponent_saturates` in
-[`rs/tests/zon_test.rs`](rs/tests/zon_test.rs), which asserts the RUST
-column of EVERY row above, and by `TestExponentPastTheHostInteger` in
-[`go/zon_test.go`](go/zon_test.go), which asserts the GO column and
-picks its expectation from `strconv.IntSize`, so it measures the host it
-runs on rather than assuming a 64-bit one. Nothing in this repository
-fails when the TypeScript column is repaired; that one has to be
-re-measured by hand.
+[`rs/tests/zon_test.rs`](rs/tests/zon_test.rs), which READS the table
+above out of this file and asserts the RUST column of every row it
+finds, that the Rust cell is the zig cell on each, and that the table
+holds sixteen rows, so a row added here is asserted without anyone
+copying it and the table cannot shrink; and by
+`TestExponentPastTheHostInteger` in [`go/zon_test.go`](go/zon_test.go),
+which asserts the GO column, the `zon_number` code and the quoted span
+of every rejected row, and picks its expectation from
+`strconv.IntSize`, so it measures the host it runs on rather than
+assuming a 64-bit one (`CGO_ENABLED=0 GOARCH=386 go test` runs the
+32-bit column, and both were run on 2026-09-22). Nothing in this
+repository fails when the TypeScript column is repaired; that one has
+to be re-measured by hand.
 
 ## An option outside its declared type
 

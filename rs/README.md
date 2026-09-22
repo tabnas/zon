@@ -20,9 +20,10 @@ This is a jsonic plugin: it layers on the relaxed-JSON grammar of
 [`tabnas-jsonic`](https://github.com/tabnas/jsonic) and reshapes it into
 ZON. It switches the jsonic extensions off, remaps the fixed tokens (`.{`
 opens both a struct and a tuple, `}` closes both, `=` separates a field
-from its value), adds five lex matchers for Zig syntax (dot tokens,
-multi-line strings, character literals, Zig number literals, and the
-rejection of doc comments), and prepends the grammar alternates in
+from its value), adds six lex matchers for Zig syntax (dot tokens,
+multi-line strings, character literals, Zig number literals, the
+rejection of doc comments, and double-quoted strings with Zig's escape
+set), and prepends the grammar alternates in
 [`../zon-grammar.jsonic`](../zon-grammar.jsonic), which every runtime
 embeds.
 
@@ -125,17 +126,22 @@ its dependents, so `tabnas-zon` alone does not put `tabnas` or
 `tabnas-jsonic` in your extern prelude, and the examples above that name
 `tabnas_jsonic::make` would not resolve. Only `ZonError` is re-exported.
 The `json` checkout is needed because `tabnas-jsonic` takes it by path.
-The test suite additionally needs `https://github.com/tabnas/support`
-beside the repository, for the shared fixture runner.
+The test suite additionally needs `https://github.com/tabnas/support`,
+for the shared fixture runner, and `https://github.com/tabnas/debug`,
+for the composition test, beside the repository.
 
 ## Differences from the canonical TypeScript
 
-Every verdict and every parse result a ZON document can express is the
-TypeScript one: the shared fixtures in [`../test/spec`](../test/spec)
-and the two zig reference corpora hold all three runtimes to it. What
-differs is the shape of the API, the spelling of values the host
-language has no type for, and the handful of inputs measured in
-[`../DIVERGENCE.md`](../DIVERGENCE.md):
+On every row of the shared fixtures in [`../test/spec`](../test/spec)
+and every document in the two zig reference corpora, this crate gives
+the TypeScript verdict and the TypeScript value, and the suite fails if
+it stops. That is what is measured, and it is not a claim about every
+document ZON can express: the inputs outside those sets on which the
+runtimes are known to differ are measured, one table per input, in
+[`../DIVERGENCE.md`](../DIVERGENCE.md), and the two below that change a
+verdict or a value are summarised there and here. The rest of what
+differs is the shape of the API and the spelling of values the host
+language has no type for:
 
 - **Options are a struct.** `ZonOptions` has `char_as_number` and
   `enum_tag` as typed fields; `to_value` and `from_value` convert to and
@@ -162,11 +168,22 @@ language has no type for, and the handful of inputs measured in
   parsed manifest prints its fields in the order they were written.
 - **The duplicate-field guard hands back an error token**, as the
   TypeScript hook does; the Go port signals the same code through the
-  parse context. The result is the same `zon_dup_field` error at the
-  same position.
-- **Lone surrogates fold to U+FFFD**, and the regular expression dialect
-  is the `regex` crate's. Both come from the engine, and both are
-  recorded there.
+  parse context. The result is the same `zon_dup_field` code in all
+  three, which `../test/spec/errors.tsv` pins.
+- **No token descriptions are attached.** The canonical plugin hangs a
+  table of human token descriptions off `cfg.tokenDesc` through a
+  `config.modify` hook, which `@tabnas/railroad` reads for a diagram
+  legend. This engine's config has no such field, so this plugin
+  attaches none, and the Rust railroad crate takes the descriptions
+  from its own `ExtractOptions::token_desc` instead. No parse result
+  depends on them.
+- **A surrogate character literal folds to U+FFFD.** `'\u{D800}'` is an
+  integer in Zig and a one-character string here by default; a Rust
+  `String` cannot hold an unpaired surrogate, so the character is
+  U+FFFD, where the canonical runtime keeps the UTF-16 code unit. Under
+  `char_as_number` the value is the number 55296 in every runtime. A
+  surrogate escape in a `"..."` string or a `.@"..."` identifier is
+  rejected in every runtime, as the zig oracle rejects it.
 - **A document nested more than 127 containers deep fails** with the
   engine's `cancel` code. The engine walks a value with the call stack
   to display, convert or drop it, so an unbounded one ends the process
@@ -178,16 +195,25 @@ language has no type for, and the handful of inputs measured in
   canonical runtime advances the column of a `\\` string run by the
   token's whole length, newlines included, so it names a column too far
   right for a later error on that line; this port counts the rows the
-  token spans, and no other position differs between the runtimes.
-- **A decimal exponent of 21 digits or more saturates** to an infinity
-  or a zero, where the canonical runtime reads only the prefix of the
-  literal it rebuilds and the Go port rejects it.
+  token spans. The row, the message and the quoted source line are the
+  same in all three, and this is the one position difference the
+  register records.
+- **An exponent past what an integer holds saturates** to an infinity
+  or a zero, the answer the zig reference implementation gives on every
+  row measured. The canonical runtime spells the exponent back into the
+  literal it rebuilds and reads only a prefix once that spelling needs
+  exponent form itself (from `1e21`), so `1e999999999999999999999` is
+  `10` there; the Go port reads the exponent into a host `int` and
+  rejects what overflows it, from `1e9223372036854775808` on a 64-bit
+  host. Neither boundary is a digit count. This is the one input class
+  where this crate's answer is the reference's and the canonical one is
+  not.
 
 ## Build and test
 
-The engine, the JSON core, the relaxed-JSON grammar and the fixture
-runner are path dependencies on sibling checkouts, so there is nothing to
-fetch by hand:
+The engine, the JSON core, the relaxed-JSON grammar, the fixture runner
+and the debug plugin are path dependencies on sibling checkouts, so there
+is nothing to fetch by hand:
 
 ```bash
 cargo test --all-targets && cargo test --doc
@@ -206,7 +232,9 @@ fails the suite, it never skips. Beside them are the in-language tests
 for what a fixture cannot express: big integers, infinities, NaN and
 negative zero, the error messages, plugin layering and re-use, the
 embedded grammar against its source, the shared default parser under
-threads, and that `parse` reuses its instance.
+threads, that `parse` reuses its instance, and that the grammar composes
+with `tabnas-debug` and reads back as the same structured model the
+TypeScript suite asserts.
 
 ## License
 

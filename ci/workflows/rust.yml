@@ -57,9 +57,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Checked out into a NAMED directory. rs/Cargo.toml takes the
-      # engine as `path = "../../parser/rs"` (and the jsonic grammar and
-      # the fixture runner the same way, and jsonic takes the JSON core by
-      # path in turn), which resolves relative to rs/, so
+      # engine as `path = "../../parser/rs"` (and the jsonic grammar, the
+      # fixture runner and the debug plugin the same way, and jsonic takes
+      # the JSON core by path in turn), which resolves relative to rs/, so
       # the siblings have to sit beside this checkout rather than inside
       # it. A bare `actions/checkout` into the workspace root leaves
       # nowhere for them to go.
@@ -76,6 +76,7 @@ jobs:
           git clone --depth 1 https://github.com/tabnas/json.git json
           git clone --depth 1 https://github.com/tabnas/jsonic.git jsonic
           git clone --depth 1 https://github.com/tabnas/support.git support
+          git clone --depth 1 https://github.com/tabnas/debug.git debug
 
       # Pinned to the MSRV in rs/Cargo.toml rather than to `stable`, so
       # this fails on a change that needs a newer compiler instead of

@@ -22,9 +22,13 @@ ziglang/zig 0.16.0 release by `scripts/fetch-zigzon.sh`.
   the platform one: a host with no pinned zig oracle toolchain
   (anything but linux/macos on x86_64/aarch64) reports one explicit,
   platform-named skip. Never widen that carve-out to cover a missing file.
-- **The census is pinned** — 184 valid / 44 invalid in `zigzon`, 48 / 74 in
-  `strictness`. If it fails, find out what changed in the generator; do not
-  edit the number to match.
+- **The census is pinned** — 184/44 in `zigzon`, 68/95 in `strictness`.
+  The three runners hold those numbers, and
+  `the_corpus_census_in_the_docs_is_the_one_the_runners_pin` in
+  `rs/tests/zigzon_test.rs` reads every census figure out of the markdown
+  pages and fails when one of them drifts from the runners, so the line
+  above cannot go stale on its own. If a census assertion fails, find out
+  what changed in the generator; do not edit the number to match.
 - **Every download is SHA-256 pinned.** A mismatch is a hard failure, never
   something to work around.
 - Do not shrink a corpus, add a skip list, narrow the option set, or loosen

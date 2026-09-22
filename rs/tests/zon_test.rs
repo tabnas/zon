@@ -739,28 +739,158 @@ fn a_multi_line_string_leaves_the_column_honest() {
     let error = parse(".{ .a = \\\\x\n, .b = }").expect_err("the input is a syntax error");
     assert_eq!(error.code, "unexpected");
     assert_eq!((error.row, error.col), (2, 8));
+    // The entry is about the column ALONE: the message, the offending
+    // token and the quoted source line are what the other two runtimes
+    // give, so they are asserted here rather than left to the prose.
+    assert_eq!(error.detail, "unexpected character(s): }");
+    assert_eq!(error.src, "}");
+    let report = error.to_string();
+    for expected in ["2:8", ", .b = }", "unexpected character(s): }"] {
+        assert!(
+            report.contains(expected),
+            "{expected:?} is not in the report:\n{report}"
+        );
+    }
 }
 
 #[test]
 fn an_absurd_decimal_exponent_saturates() {
-    // An exponent of 21 digits or more overflows what the canonical
-    // runtime's `parseInt` keeps exactly, and it then spells the value
-    // back into the literal in exponent form, so `parseFloat` reads only
-    // the prefix: TypeScript gives 10 and 0.1 for these two. Go rejects
-    // both. This port saturates the exponent, so the value is the
-    // infinity or the zero the magnitude calls for.
-    assert_eq!(number("1e999999999999999999999"), f64::INFINITY);
-    assert_eq!(number("1e-999999999999999999999"), 0.0);
-    // A 20-digit exponent is inside the saturation and agrees with
-    // TypeScript exactly.
-    assert_eq!(number("1e99999999999999999999"), f64::INFINITY);
-    // So does an ordinary out-of-range exponent, which all three
-    // runtimes answer with an infinity.
-    assert_eq!(number("1e400"), f64::INFINITY);
-    // The hexadecimal `p` form saturates the same way and agrees with
-    // TypeScript at both ends, where Go rejects it.
-    assert_eq!(number("0x1p-99999999999999999999"), 0.0);
-    assert_eq!(number("0x1p99999999999999999999"), f64::INFINITY);
+    // The exponent is read with saturation at a million either way,
+    // already past the double range, so the value is the infinity or the
+    // zero the magnitude calls for: the answer the zig oracle gives on
+    // every row. The canonical runtime's `parseInt` round trip and the Go
+    // port's `strconv.Atoi` each fail somewhere along this table, which
+    // is what DIVERGENCE.md measures. The rows are READ FROM THE
+    // REGISTER, so a row added to the table is asserted here without
+    // anyone remembering to copy it, and the count pins the table's size
+    // so it cannot shrink either.
+    let rows = register_table(
+        "## An exponent past what the runtime's integer parse holds",
+        "| input | zig 0.16.0 |",
+    );
+    assert_eq!(rows.len(), 16, "the exponent table holds sixteen rows");
+    for row in &rows {
+        let input = row[0].trim_matches('`');
+        let rust = row[5].trim_matches('`');
+        let value = number(input);
+        match rust {
+            "Infinity" => assert_eq!(value, f64::INFINITY, "{input}"),
+            "0" => assert!(value == 0.0 && !value.is_sign_negative(), "{input}"),
+            other => panic!("{input}: the Rust cell {other:?} is not Infinity or 0"),
+        }
+        // The register's own claim about this port: the zig column and
+        // the Rust column agree on every row.
+        assert_eq!(row[1], row[5], "{input}: the Rust cell is the oracle's");
+    }
+}
+
+/// The rows of the first table under `heading` in DIVERGENCE.md whose
+/// header row starts with `header`: each row as its trimmed cells, the
+/// header and separator rows dropped. Tables in the register are set
+/// off by blank lines, one row per line, so a block is a table.
+fn register_table(heading: &str, header: &str) -> Vec<Vec<String>> {
+    let register =
+        fs::read_to_string(repo_root().join("DIVERGENCE.md")).expect("DIVERGENCE.md is readable");
+    let section = register
+        .split(heading)
+        .nth(1)
+        .unwrap_or_else(|| panic!("DIVERGENCE.md has the entry {heading:?}"));
+    let block = section
+        .split("\n\n")
+        .find(|block| block.starts_with(header))
+        .unwrap_or_else(|| panic!("{heading:?} has a table whose header starts {header:?}"));
+    block
+        .lines()
+        .skip(2)
+        .map(|line| {
+            line.trim()
+                .trim_matches('|')
+                .split('|')
+                .map(|cell| cell.trim().to_string())
+                .collect()
+        })
+        .collect()
+}
+
+#[test]
+fn the_divergence_register_row_counts_are_derived() {
+    // The option entry says how many rows of each table the Go port
+    // differs on. That sentence was once carried over from an earlier
+    // version of the tables and was wrong by two, so the count is now
+    // taken off the cells: a row whose Go cell is not "the same" is a
+    // row the Go port differs on. Adding a row without re-counting the
+    // sentence fails here.
+    let heading = "## An option outside its declared type";
+    let register =
+        fs::read_to_string(repo_root().join("DIVERGENCE.md")).expect("DIVERGENCE.md is readable");
+    let section = register
+        .split(heading)
+        .nth(1)
+        .expect("DIVERGENCE.md has the option entry");
+    let tables: Vec<Vec<Vec<String>>> = section
+        .split("\n\n")
+        .filter(|block| block.starts_with("| options | TypeScript | Go | Rust |"))
+        .map(|block| {
+            block
+                .lines()
+                .skip(2)
+                .map(|line| {
+                    line.trim()
+                        .trim_matches('|')
+                        .split('|')
+                        .map(|cell| cell.trim().to_string())
+                        .collect()
+                })
+                .collect()
+        })
+        .collect();
+    assert_eq!(tables.len(), 2, "the option entry holds two tables");
+    let go_differs = |table: &Vec<Vec<String>>| -> usize {
+        table.iter().filter(|row| row[2] != "the same").count()
+    };
+    let words = [
+        "zero",
+        "one",
+        "two",
+        "three",
+        "four",
+        "five",
+        "six",
+        "seven",
+        "eight",
+        "nine",
+        "ten",
+        "eleven",
+        "twelve",
+        "thirteen",
+        "fourteen",
+        "fifteen",
+        "sixteen",
+        "seventeen",
+        "eighteen",
+        "nineteen",
+        "twenty",
+    ];
+    let (first, second) = (go_differs(&tables[0]), go_differs(&tables[1]));
+    assert!(0 < first && first < words.len() && 0 < second && second < words.len());
+    // The prose wraps at 72 columns, so compare with the whitespace folded.
+    let folded = section.split_whitespace().collect::<Vec<_>>().join(" ");
+    let sentence = format!(
+        "the Go port differs from the canonical runtime in {} rows of the first table and {} of the second",
+        words[first], words[second]
+    );
+    assert!(
+        folded.contains(&sentence),
+        "DIVERGENCE.md must say {sentence:?}: the tables hold {first} and {second}"
+    );
+    let quoted = format!(
+        "re-derives \"{}\" and \"{}\" from the cells",
+        words[first], words[second]
+    );
+    assert!(
+        folded.contains(&quoted),
+        "DIVERGENCE.md must say {quoted:?}"
+    );
 }
 
 #[test]
@@ -867,17 +997,29 @@ fn an_option_bag_field_is_read_on_its_own() {
 fn a_lone_surrogate_folds_to_the_replacement_character() {
     // A JavaScript string is a sequence of UTF-16 code units and can
     // hold an unpaired surrogate; a Rust `String` holds Unicode scalar
-    // values and cannot. The canonical runtime keeps U+D800 in all three
-    // spellings below, and this port substitutes U+FFFD, as the engine
-    // does throughout and as the Go port does. Under `char_as_number`
-    // the value is a number rather than a string, so the code point
-    // itself survives, which all three runtimes agree on.
+    // values and cannot. A CHARACTER literal is an integer in zig and
+    // accepts a surrogate (the pinned oracle answers `'\u{D800}'` with
+    // 55296), so it is the one spelling that reaches a string here: the
+    // canonical runtime keeps U+D800, and this port substitutes U+FFFD,
+    // as the engine does throughout and as the Go port does. Under
+    // `char_as_number` the value is a number rather than a string, so
+    // the code point itself survives, which all three runtimes agree on.
     let replacement = Value::String("\u{FFFD}".into());
     assert_eq!(parse(r"'\u{D800}'").unwrap(), replacement);
-    assert_eq!(parse(r#""\u{D800}""#).unwrap(), replacement);
-    assert_eq!(parse(r#".@"\u{D800}""#).unwrap(), replacement);
     assert_eq!(
         json(&parse_with(r"'\u{D800}'", &with_options(true, None)).unwrap()),
         "55296"
     );
+    // A `\u{...}` escape in a STRING or in a `.@"..."` identifier must
+    // name a Unicode SCALAR value, so neither ever reaches a string type:
+    // the oracle rejects both, and so do all three runtimes, with the
+    // engine's code for the string and this plugin's for the identifier
+    // (test/spec/strict.tsv and strings.tsv). Asserted here too, so the
+    // rows that left DIVERGENCE.md cannot grow back unnoticed.
+    assert_eq!(parse(r#""\u{D800}""#).unwrap_err().code, "invalid_unicode");
+    assert_eq!(
+        parse(r#""\u{D800}\u{DC00}""#).unwrap_err().code,
+        "invalid_unicode"
+    );
+    assert_eq!(parse(r#".@"\u{D800}""#).unwrap_err().code, "zon_ident");
 }

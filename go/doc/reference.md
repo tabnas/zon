@@ -216,6 +216,7 @@ Allowed before `}` in both structs and tuples.
 | Binary | `0b101010` | `float64(42)` |
 | Hex float | `0x1.8p1` | `float64(3)` |
 | Exponent | `1e5` | `float64(100000)` |
+| Empty fraction | `1.e3`, `0xF.p1` | `float64(1000)`, `float64(30)` |
 | Digit separator | `1_000_000` | `float64(1000000)` |
 | Infinity / NaN | `inf`, `-inf`, `nan` | `math.Inf(1)`, `math.Inf(-1)`, `math.NaN()` |
 | Big integer | `36893488147419103231` | a `*big.Int` |
@@ -243,9 +244,12 @@ as a `*big.Int` rather than silently rounded.
 
 ### Strings
 
-Double-quoted strings only (single quotes are char literals).
-Zig-flavoured escapes: `\n`, `\r`, `\t`, `\\`, `\"`, `\'`. Unknown
-escapes are an error.
+Double-quoted strings only (single quotes are char literals). The
+escapes are Zig's and no other: `\n`, `\r`, `\t`, `\\`, `\"`, `\'`, a byte
+`\xNN`, and `\u{...}` naming a Unicode scalar value (so a surrogate such
+as `\u{D800}` is an error). A run of `\xNN` escapes is decoded as UTF-8
+once it ends: `"\xe2\x82\xac"` is the euro sign. Unknown escapes, JSON's
+`\uXXXX` among them, and raw control characters are errors.
 
 ```
 "a\nb"                    => "a\nb"
@@ -268,8 +272,9 @@ line) rather than ending it.
 ### Character literals
 
 Single-quoted Zig char literals: a single character, an escape (`'\n'`,
-`'\r'`, `'\t'`, `'\\'`, `'\''`, `'\"'`, `'\0'`), a hex escape `'\xNN'`,
-or a Unicode escape `'\u{...}'`. Default result is a one-character
+`'\r'`, `'\t'`, `'\\'`, `'\''`, `'\"'`), a hex escape `'\xNN'`, or a
+Unicode escape `'\u{...}'`; `'\0'` is not a Zig escape, and NUL is
+`'\x00'`. Default result is a one-character
 string; with `CharAsNumber` set, the numeric code point as `float64`.
 
 ### Comments

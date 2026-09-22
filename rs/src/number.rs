@@ -68,11 +68,14 @@ pub(crate) fn scan(src: &str, start: usize) -> Result<Scanned, usize> {
     if bytes.get(i) == Some(&b'.') {
         let after = bytes.get(i + 1).copied();
         let after_digit = after.map_or(-1, digit_val);
-        // A `.` only starts a fraction when a digit of this base (or, for
-        // hex, the `p` exponent) follows; otherwise it is a stray token and
+        // A `.` only starts a fraction when a digit of this base, or this
+        // base's exponent letter, follows; otherwise it is a stray token and
         // the number ends here: `1.` and `0.1.2` are rejected by the parser.
+        // The fraction itself may then be EMPTY: zig reads `1.e3` and
+        // `0xF.p1` as one float token each.
         let starts_frac = (0 <= after_digit && (after_digit as u32) < base)
-            || (base == 16 && matches!(after, Some(b'p' | b'P')));
+            || (base == 16 && matches!(after, Some(b'p' | b'P')))
+            || (base == 10 && matches!(after, Some(b'e' | b'E')));
         if starts_frac {
             if base != 16 && base != 10 {
                 return fail(); // no floats in this base
