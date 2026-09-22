@@ -650,3 +650,239 @@ pub fn parse(src: &str) -> Result<Value, ZonError> {
 pub fn parse_with(src: &str, options: &ZonOptions) -> Result<Value, ZonError> {
     make_with(options).parse(src)
 }
+
+// ---------------------------------------------------------------------------
+// The option overrides, against the canonical plugin
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::options_document;
+    use std::fs;
+    use std::path::Path;
+
+    /// The canonical plugin's `grammarDef.options` literal, read out of
+    /// `ts/src/zon.ts`. It is TypeScript source rather than JSON, so the
+    /// body is walked rather than parsed.
+    fn canonical_overrides() -> String {
+        let source =
+            fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../ts/src/zon.ts"))
+                .expect("ts/src/zon.ts is readable");
+        let at = source
+            .find("grammarDef.options = ")
+            .expect("ts/src/zon.ts assigns grammarDef.options");
+        object_body(&source, at).to_string()
+    }
+
+    /// The body of the first object literal at or after `from`, with its
+    /// braces stripped. Line comments and single-quoted strings are
+    /// skipped so a `{`, `}` or `'` inside one cannot close the literal
+    /// early. Nothing in the literals read here uses a template literal,
+    /// a regular expression or a double-quoted string.
+    fn object_body(src: &str, from: usize) -> &str {
+        let bytes = src.as_bytes();
+        let mut i = from;
+        while i < bytes.len() && bytes[i] != b'{' {
+            i += 1;
+        }
+        assert!(i < bytes.len(), "no object literal after byte {from}");
+        let start = i + 1;
+        let mut depth = 1usize;
+        i = start;
+        while i < bytes.len() && 0 < depth {
+            match bytes[i] {
+                b'/' if bytes.get(i + 1) == Some(&b'/') => {
+                    while i < bytes.len() && bytes[i] != b'\n' {
+                        i += 1;
+                    }
+                }
+                b'\'' => {
+                    i += 1;
+                    while i < bytes.len() && bytes[i] != b'\'' {
+                        i += if bytes[i] == b'\\' { 2 } else { 1 };
+                    }
+                    i += 1;
+                }
+                b'{' => {
+                    depth += 1;
+                    i += 1;
+                }
+                b'}' => {
+                    depth -= 1;
+                    i += 1;
+                }
+                _ => i += 1,
+            }
+        }
+        assert_eq!(depth, 0, "unbalanced object literal after byte {from}");
+        &src[start..i - 1]
+    }
+
+    /// Every key of the object literal whose body this is, in source
+    /// order, paired with the byte index just past its colon. A key at
+    /// brace depth zero is recorded; anything nested belongs to an inner
+    /// literal and is left to a second call on that one.
+    fn entries(body: &str) -> Vec<(String, usize)> {
+        let bytes = body.as_bytes();
+        let mut out = Vec::new();
+        let mut word = String::new();
+        let mut depth = 0usize;
+        let mut i = 0usize;
+        while i < bytes.len() {
+            match bytes[i] {
+                b'/' if bytes.get(i + 1) == Some(&b'/') => {
+                    while i < bytes.len() && bytes[i] != b'\n' {
+                        i += 1;
+                    }
+                }
+                b'\'' => {
+                    let start = i + 1;
+                    i += 1;
+                    while i < bytes.len() && bytes[i] != b'\'' {
+                        i += if bytes[i] == b'\\' { 2 } else { 1 };
+                    }
+                    if 0 == depth {
+                        word = body[start..i].to_string();
+                    }
+                    i += 1;
+                }
+                b'{' | b'[' | b'(' => {
+                    depth += 1;
+                    i += 1;
+                }
+                b'}' | b']' | b')' => {
+                    depth -= 1;
+                    i += 1;
+                }
+                b':' if 0 == depth => {
+                    assert!(!word.is_empty(), "a value with no key in:\n{body}");
+                    out.push((std::mem::take(&mut word), i + 1));
+                    i += 1;
+                }
+                b',' if 0 == depth => {
+                    word.clear();
+                    i += 1;
+                }
+                c => {
+                    if 0 == depth {
+                        if c.is_ascii_alphanumeric() || b'_' == c || b'$' == c {
+                            word.push(c as char);
+                        } else {
+                            word.clear();
+                        }
+                    }
+                    i += 1;
+                }
+            }
+        }
+        out
+    }
+
+    fn keys(body: &str) -> Vec<String> {
+        entries(body).into_iter().map(|(key, _)| key).collect()
+    }
+
+    /// The body of the object literal bound to `key`.
+    fn field<'a>(body: &'a str, key: &str) -> &'a str {
+        let (_, at) = entries(body)
+            .into_iter()
+            .find(|(name, _)| name == key)
+            .unwrap_or_else(|| panic!("the canonical literal has no {key} key"));
+        object_body(body, at)
+    }
+
+    /// The keys of a `serde_json` object, in insertion order.
+    fn ported_keys(value: &serde_json::Value) -> Vec<String> {
+        value
+            .as_object()
+            .expect("an object")
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    /// AGENTS.md rule 4 requires the jsonic option overrides to exist in
+    /// all three runtimes and stay in step. Nothing measured that: the
+    /// two lists were kept aligned by reading them side by side. This
+    /// reads the canonical list out of `ts/src/zon.ts` and compares it
+    /// with the one this port installs, key by key, so an override added
+    /// or renamed there fails here instead of drifting silently.
+    #[test]
+    fn the_option_override_surface_is_the_canonical_one() {
+        let canonical = canonical_overrides();
+        let ported = options_document();
+        assert_eq!(keys(&canonical), ported_keys(&ported));
+
+        // The three tables AGENTS.md names cell by cell rather than by
+        // their presence alone: the error catalogue is the code contract
+        // a fixture pins, the fixed-token remap is what makes `.{` the
+        // only opener, and the matcher orders are what put zonDot ahead
+        // of the fixed-token matcher and zonDocComment ahead of the
+        // comment matcher.
+        assert_eq!(
+            keys(field(&canonical, "error")),
+            ported_keys(&ported["error"])
+        );
+        assert_eq!(
+            keys(field(field(&canonical, "fixed"), "token")),
+            ported_keys(&ported["fixed"]["token"])
+        );
+        let matchers = field(field(&canonical, "lex"), "match");
+        assert_eq!(keys(matchers), ported_keys(&ported["lex"]["match"]));
+        for (name, at) in entries(matchers) {
+            let body = object_body(matchers, at);
+            let (_, order_at) = entries(body)
+                .into_iter()
+                .find(|(field, _)| "order" == field)
+                .unwrap_or_else(|| panic!("{name} declares no order"));
+            let text: String = body[order_at..]
+                .chars()
+                .skip_while(char::is_ascii_whitespace)
+                .take_while(|c| !c.is_whitespace() && ',' != *c)
+                .collect();
+            let want: f64 = text
+                .parse()
+                .unwrap_or_else(|_| panic!("{name} has a non-numeric order {text:?}"));
+            assert_eq!(
+                ported["lex"]["match"][&name]["order"].as_f64(),
+                Some(want),
+                "{name}"
+            );
+        }
+    }
+
+    /// The two places this port's override document deliberately differs
+    /// from the canonical one. Both are asserted rather than left to
+    /// prose, so a repair in the engine that removes the reason for one
+    /// fails here and the note in `README.md` comes out with it.
+    #[test]
+    fn the_two_override_differences_are_the_documented_ones() {
+        let canonical = canonical_overrides();
+        let ported = options_document();
+
+        // `null` is left to the engine's default definition: a
+        // serialized `"val": null` reads as "no value" rather than as
+        // the null value, so restating it would switch the keyword off.
+        // The keyword still lexes, which `test/spec/scalars.tsv` pins.
+        assert_eq!(
+            keys(field(field(&canonical, "value"), "def")),
+            ["true", "false", "null"]
+        );
+        assert_eq!(ported_keys(&ported["value"]["def"]), ["true", "false"]);
+
+        // The canonical plugin also calls `tn.options` with a
+        // `config.modify` hook that hangs human token descriptions off
+        // `cfg.tokenDesc`, which `@tabnas/railroad` reads for a diagram
+        // legend. This engine's config has no such field, and the Rust
+        // railroad crate takes the descriptions from its own
+        // `ExtractOptions::token_desc` instead, so there is nothing for
+        // the plugin to attach and the override document carries no
+        // `config` block.
+        let source =
+            fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../ts/src/zon.ts"))
+                .expect("ts/src/zon.ts is readable");
+        assert!(source.contains("'zon-tokendesc'"));
+        assert!(source.contains("cfg.tokenDesc"));
+        assert_eq!(ported.get("config"), None);
+    }
+}

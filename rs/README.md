@@ -170,6 +170,13 @@ language has no type for:
   TypeScript hook does; the Go port signals the same code through the
   parse context. The result is the same `zon_dup_field` code in all
   three, which `../test/spec/errors.tsv` pins.
+- **No token descriptions are attached.** The canonical plugin hangs a
+  table of human token descriptions off `cfg.tokenDesc` through a
+  `config.modify` hook, which `@tabnas/railroad` reads for a diagram
+  legend. This engine's config has no such field, so this plugin
+  attaches none, and the Rust railroad crate takes the descriptions
+  from its own `ExtractOptions::token_desc` instead. No parse result
+  depends on them.
 - **A surrogate character literal folds to U+FFFD.** `'\u{D800}'` is an
   integer in Zig and a one-character string here by default; a Rust
   `String` cannot hold an unpaired surrogate, so the character is

@@ -8,7 +8,7 @@ and this file only covers what is specific to this crate.
 
 | Path | |
 |---|---|
-| `src/lib.rs` | the embedded grammar text, the option overrides document, `ZonOptions`, the two lifecycle hooks, `zon`, `plugin`, `make`, `make_with`, `parse`, `parse_with` |
+| `src/lib.rs` | the embedded grammar text, the option overrides document, `ZonOptions`, the two lifecycle hooks, `zon`, `plugin`, `make`, `make_with`, `parse`, `parse_with`, and the unit tests that hold the overrides to `ts/src/zon.ts` |
 | `src/lex.rs` | the six lex matchers (`zonDot`, `zonMultiString`, `zonChar`, `zonNumber`, `zonDocComment`, `zonString`) and the Zig string scanner they share with the `.@"..."` form |
 | `src/number.rs` | the Zig number-literal scanner and the small `BigUint` the exactness rule needs |
 | `tests/parity_test.rs` | every `../test/spec/*.tsv` fixture through `tabnas_support::Runner::new_with_row`, a fresh parser per row from its `opts` column |
@@ -111,6 +111,35 @@ message can quote it.
 `zonChar` bakes `charAsNumber` into its closure, as the TypeScript
 `buildZonCharMatcher(charAsNumber)` does, so the option is read once at
 install time.
+
+## The option overrides
+
+`options_document()` is the `grammarDef.options` of the canonical
+plugin, attached to the grammar document so rules and options apply
+atomically. AGENTS.md rule 4 requires the overrides to exist in all
+three runtimes and stay in step, and nothing measured that until
+`the_option_override_surface_is_the_canonical_one` (a unit test in
+`src/lib.rs`): it reads the literal out of `ts/src/zon.ts` and compares
+the top-level keys, the error catalogue, the fixed-token remap and the
+six matcher names WITH their orders, so an override added or renamed
+there without a counterpart here goes red rather than drifting.
+
+Two differences are deliberate, and
+`the_two_override_differences_are_the_documented_ones` asserts both, so
+neither survives as prose alone:
+
+- `value.def` restates `true` and `false` and leaves `null` to the
+  engine's own definition. A serialized `"val": null` reads as "no
+  value" rather than as the null value, so restating it would switch the
+  keyword off.
+- There is no `config` block. The canonical plugin also calls
+  `tn.options` with a `config.modify` hook that hangs human token
+  descriptions off `cfg.tokenDesc`, which `@tabnas/railroad` reads for a
+  diagram legend. This engine's config has no such field, and the Rust
+  railroad crate takes the descriptions from its own
+  `ExtractOptions::token_desc`, so there is nothing for the plugin to
+  attach. `README.md` records it as a difference; no parse result
+  depends on it.
 
 ## Numbers
 
