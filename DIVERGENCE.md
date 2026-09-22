@@ -155,7 +155,12 @@ string.
 
 Owned by the canonical TypeScript: the repair is to count the token's
 rows there, after which this port matches with no change. Pinned by
-`a_multi_line_string_leaves_the_column_honest`.
+`a_multi_line_string_leaves_the_column_honest`, which asserts the code,
+the row and the column AND the message, the offending token and the
+quoted source line, so that a formatter or source-excerpt regression
+fails the pin rather than leaving this entry stale behind a green one.
+The column is the one cell the entry leaves to prose, and it is the
+cell the test asserts as 8.
 
 ## An exponent past what the runtime's integer parse holds
 
@@ -197,9 +202,13 @@ of digits:
   `math.MaxInt32`, so it falls to `1e2147483647` and `1e2147483648`.
   The sign is applied after the parse (`expSign * n`), so a negative
   exponent has the same magnitude bound and not the extra step
-  `math.MinInt` would allow. A 32-bit build also reports a shorter
-  span: the quoted source is `1e` rather than the whole literal, because
-  the failure is found before the digits are consumed.
+  `math.MinInt` would allow. A rejected NEGATIVE exponent also quotes a
+  shorter span, on either word size: the failure span is measured with
+  `scanNumTokenEnd`, which stops at the sign, so the message names `1e`
+  or `0x1p` rather than the whole literal, where a rejected positive
+  exponent quotes the literal in full. An earlier version of this entry
+  put the shorter span down to the 32-bit build; it was measured on
+  both and belongs to the sign.
 - **TypeScript** reads the exponent with `parseInt` and then spells the
   result back into the literal it hands to `parseFloat`. The boundary is
   where `String(n)` switches to exponent form, which is `1e21`, not a
@@ -222,13 +231,19 @@ repairs move that runtime TOWARDS the Rust column and towards the zig
 oracle, so neither costs this port anything.
 
 Pinned by `an_absurd_decimal_exponent_saturates` in
-[`rs/tests/zon_test.rs`](rs/tests/zon_test.rs), which asserts the RUST
-column of EVERY row above, and by `TestExponentPastTheHostInteger` in
-[`go/zon_test.go`](go/zon_test.go), which asserts the GO column and
-picks its expectation from `strconv.IntSize`, so it measures the host it
-runs on rather than assuming a 64-bit one. Nothing in this repository
-fails when the TypeScript column is repaired; that one has to be
-re-measured by hand.
+[`rs/tests/zon_test.rs`](rs/tests/zon_test.rs), which READS the table
+above out of this file and asserts the RUST column of every row it
+finds, that the Rust cell is the zig cell on each, and that the table
+holds sixteen rows, so a row added here is asserted without anyone
+copying it and the table cannot shrink; and by
+`TestExponentPastTheHostInteger` in [`go/zon_test.go`](go/zon_test.go),
+which asserts the GO column, the `zon_number` code and the quoted span
+of every rejected row, and picks its expectation from
+`strconv.IntSize`, so it measures the host it runs on rather than
+assuming a 64-bit one (`CGO_ENABLED=0 GOARCH=386 go test` runs the
+32-bit column, and both were run on 2026-09-22). Nothing in this
+repository fails when the TypeScript column is repaired; that one has
+to be re-measured by hand.
 
 ## An option outside its declared type
 

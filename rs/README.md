@@ -131,12 +131,16 @@ beside the repository, for the shared fixture runner.
 
 ## Differences from the canonical TypeScript
 
-Every verdict and every parse result a ZON document can express is the
-TypeScript one: the shared fixtures in [`../test/spec`](../test/spec)
-and the two zig reference corpora hold all three runtimes to it. What
-differs is the shape of the API, the spelling of values the host
-language has no type for, and the handful of inputs measured in
-[`../DIVERGENCE.md`](../DIVERGENCE.md):
+On every row of the shared fixtures in [`../test/spec`](../test/spec)
+and every document in the two zig reference corpora, this crate gives
+the TypeScript verdict and the TypeScript value, and the suite fails if
+it stops. That is what is measured, and it is not a claim about every
+document ZON can express: the inputs outside those sets on which the
+runtimes are known to differ are measured, one table per input, in
+[`../DIVERGENCE.md`](../DIVERGENCE.md), and the two below that change a
+verdict or a value are summarised there and here. The rest of what
+differs is the shape of the API and the spelling of values the host
+language has no type for:
 
 - **Options are a struct.** `ZonOptions` has `char_as_number` and
   `enum_tag` as typed fields; `to_value` and `from_value` convert to and
@@ -163,8 +167,8 @@ language has no type for, and the handful of inputs measured in
   parsed manifest prints its fields in the order they were written.
 - **The duplicate-field guard hands back an error token**, as the
   TypeScript hook does; the Go port signals the same code through the
-  parse context. The result is the same `zon_dup_field` error at the
-  same position.
+  parse context. The result is the same `zon_dup_field` code in all
+  three, which `../test/spec/errors.tsv` pins.
 - **A surrogate character literal folds to U+FFFD.** `'\u{D800}'` is an
   integer in Zig and a one-character string here by default; a Rust
   `String` cannot hold an unpaired surrogate, so the character is
@@ -183,10 +187,19 @@ language has no type for, and the handful of inputs measured in
   canonical runtime advances the column of a `\\` string run by the
   token's whole length, newlines included, so it names a column too far
   right for a later error on that line; this port counts the rows the
-  token spans, and no other position differs between the runtimes.
-- **A decimal exponent of 21 digits or more saturates** to an infinity
-  or a zero, where the canonical runtime reads only the prefix of the
-  literal it rebuilds and the Go port rejects it.
+  token spans. The row, the message and the quoted source line are the
+  same in all three, and this is the one position difference the
+  register records.
+- **An exponent past what an integer holds saturates** to an infinity
+  or a zero, the answer the zig reference implementation gives on every
+  row measured. The canonical runtime spells the exponent back into the
+  literal it rebuilds and reads only a prefix once that spelling needs
+  exponent form itself (from `1e21`), so `1e999999999999999999999` is
+  `10` there; the Go port reads the exponent into a host `int` and
+  rejects what overflows it, from `1e9223372036854775808` on a 64-bit
+  host. Neither boundary is a digit count. This is the one input class
+  where this crate's answer is the reference's and the canonical one is
+  not.
 
 ## Build and test
 

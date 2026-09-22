@@ -3,9 +3,11 @@
 package tabnaszon
 
 import (
+	"errors"
 	"math"
 	"math/big"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -368,6 +370,83 @@ func TestDocCommentsRejected(t *testing.T) {
 	for _, src := range []string{"//// four\n1", "// two\n1"} {
 		if got := parse(t, src); got != 1.0 {
 			t.Errorf("parse(%q) = %v, want 1", src, got)
+		}
+	}
+}
+
+// TestExponentPastTheHostInteger pins the GO column of the DIVERGENCE.md
+// entry "An exponent past what the runtime's integer parse holds".
+//
+// The exponent digits are read with strconv.Atoi, which parses into int,
+// so a literal whose exponent overflows the HOST word is rejected as
+// zon_number where the zig oracle (and the Rust port) saturate to an
+// infinity or a zero. The boundary is therefore math.MaxInt64 on a 64-bit
+// host and math.MaxInt32 on a 32-bit one; the expectation is picked from
+// strconv.IntSize so the test measures the host it runs on rather than
+// assuming one (`CGO_ENABLED=0 GOARCH=386 go test` runs the other column).
+//
+// A rejected NEGATIVE exponent quotes a shorter span, on either word size:
+// the failure span is measured with scanNumTokenEnd, which stops at the
+// sign, so the message names `1e` or `0x1p` rather than the whole literal.
+// A rejected positive exponent quotes the literal in full.
+//
+// Repairing this (strconv.ParseInt(.., 64) with saturation) moves every
+// rejected row to the oracle's answer; delete this test and the entry in
+// the same change.
+func TestExponentPastTheHostInteger(t *testing.T) {
+	inf := math.Inf(1)
+	const reject = "ERROR:zon_number"
+	rows := []struct {
+		input string
+		on64  any    // the cell for a 64-bit host
+		on32  any    // the cell for a 32-bit host
+		src   string // the quoted source when rejected
+	}{
+		{"1e400", inf, inf, ""},
+		{"1e2147483647", inf, inf, ""},
+		{"1e2147483648", inf, reject, "1e2147483648"},
+		{"1e9223372036854775807", inf, reject, "1e9223372036854775807"},
+		{"1e9223372036854775808", reject, reject, "1e9223372036854775808"},
+		{"1e-9223372036854775807", 0.0, reject, "1e"},
+		{"1e-9223372036854775808", reject, reject, "1e"},
+		{"1e9999999999999999999", reject, reject, "1e9999999999999999999"},
+		{"1e100000000000000000001", reject, reject, "1e100000000000000000001"},
+		{"1e999999999999999999998", reject, reject, "1e999999999999999999998"},
+		{"1e999999999999999999999", reject, reject, "1e999999999999999999999"},
+		{"1e-999999999999999999999", reject, reject, "1e"},
+		{"0x1p2147483647", inf, inf, ""},
+		{"0x1p2147483648", inf, reject, "0x1p2147483648"},
+		{"0x1p99999999999999999999", reject, reject, "0x1p99999999999999999999"},
+		{"0x1p-99999999999999999999", reject, reject, "0x1p"},
+	}
+	if len(rows) != 16 {
+		t.Fatalf("the register's table holds sixteen rows; this test has %d", len(rows))
+	}
+	j := mustZon(t)
+	for _, row := range rows {
+		want := row.on64
+		if strconv.IntSize == 32 {
+			want = row.on32
+		}
+		got, err := j.Parse(row.input)
+		if want == reject {
+			var te *jsonic.JsonicError
+			if !errors.As(err, &te) {
+				t.Errorf("%s: want %s on a %d-bit host, got %#v, %v", row.input, reject, strconv.IntSize, got, err)
+				continue
+			}
+			if te.Code != "zon_number" || te.Src != row.src {
+				t.Errorf("%s: got code %q quoting %q, want zon_number quoting %q", row.input, te.Code, te.Src, row.src)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("%s: want %v on a %d-bit host, got %v", row.input, want, strconv.IntSize, err)
+			continue
+		}
+		f, ok := got.(float64)
+		if !ok || f != want.(float64) || math.Signbit(f) {
+			t.Errorf("%s: got %#v, want %v", row.input, got, want)
 		}
 	}
 }
