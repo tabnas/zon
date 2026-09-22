@@ -328,7 +328,7 @@ requirement.
   is recorded in [`DIVERGENCE.md`](DIVERGENCE.md)**, measured through all
   three, with the test that pins it named. The list is short (big
   integers, lone surrogates, the depth budget, the column after a
-  multi-line string, a 21-digit exponent, an option outside its declared
+  multi-line string, an exponent past the host integer, an option outside its declared
   type): a new difference is either repaired or added there with its
   measurements and its test, in the same change. Those tests assert the
   RUST side; the TypeScript and Go columns are measurements, and nothing
