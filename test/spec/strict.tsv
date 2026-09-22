@@ -20,6 +20,12 @@ _1	ERROR
 1_.0	ERROR
 1._0	ERROR
 1.0_	ERROR
+# An empty fraction needs a COMPLETE exponent after it: zig reads `1.e3` as
+# one float token and rejects each of these.
+1.e	ERROR
+1.ee3	ERROR
+1.e_3	ERROR
+1.e3_	ERROR
 0x_2A	ERROR
 0x1_	ERROR
 0X2A	ERROR

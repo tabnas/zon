@@ -84,7 +84,7 @@ it rule on every ZON document in the zig tree.
 | Corpus | Documents | Accepted correctly | Rejected correctly |
 |---|---|---|---|
 | Every `.zon` file in the zig tree, plus every snippet in `lib/std/zon/parse.zig` | 228 | 184 / 184 | 44 / 44 |
-| Leniency probes (`test/strictness/inputs.txt`), judged by the same oracle | 129 | 49 / 49 | 80 / 80 |
+| Leniency probes (`test/strictness/inputs.txt`), judged by the same oracle | 163 | 68 / 68 | 95 / 95 |
 
 Identical in all three runtimes. A corpus is a measurement, not a proof:
 the inputs outside both corpora on which a runtime is known to differ

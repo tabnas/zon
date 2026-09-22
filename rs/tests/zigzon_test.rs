@@ -269,5 +269,5 @@ fn zigzon_reference_corpus() {
 /// same reference implementation.
 #[test]
 fn zig_strictness_probes() {
-    run_zig_corpus(strictness_corpus(), 49, 80);
+    run_zig_corpus(strictness_corpus(), 68, 95);
 }

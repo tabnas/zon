@@ -264,5 +264,5 @@ func TestZigZon(t *testing.T) {
 // relaxed-JSON behaviour leaking through the jsonic layer, with the verdicts
 // supplied by the same reference implementation.
 func TestZigStrictness(t *testing.T) {
-	runZigCorpus(t, strictnessCorpus, 49, 80)
+	runZigCorpus(t, strictnessCorpus, 68, 95)
 }

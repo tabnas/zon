@@ -225,7 +225,7 @@ test measures.
 `zigzon_test.rs` runs `scripts/fetch-zigzon.sh` (through `bash`) when
 either `cases.json` is missing and the host is one the script has a
 pinned zig toolchain for, then grades both corpora with the pinned census
-(184/44 and 49/80). A missing corpus FAILS the test; the only skip is the
+(184/44 and 68/95). A missing corpus FAILS the test; the only skip is the
 platform one, and it names the platform. Do not widen it.
 
 ## The docs are gated

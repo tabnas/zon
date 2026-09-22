@@ -139,3 +139,45 @@ TRUE
 True
 .{ .a = null }
 .{ .a = undefined }
+
+# Float forms with an empty fraction. `1.` alone is a number and a stray
+# dot, but a complete exponent after the dot makes one float token, in
+# decimal as well as hex.
+1.e3
+1.E3
+1.e+3
+1.e-3
+0.e3
+1_0.e3
+1.e1_0
+1.e
+1.ee3
+1.e_3
+1.e3_
+0x1.p3
+0x.8p1
+0x.8
+0x1.8
+0x.8e1
+0X.8p1
+0x_.8p1
+0b.1
+0o.7
+# Digit separators and base digits either side of the line.
+0x1_F
+0xA_
+1.0_0
+0_1
+0b1_0
+0o1_7
+1e1_0
+0x1p1_0
+# Doc comments. `//!` and `///` are refused; a fourth slash is an
+# ordinary comment again.
+///x\n42
+//!x\n42
+////x\n42
+# Field and element forms.
+.{ .@"a" = 1, .a = 2 }
+.{ 1, .a = 2 }
+.{ .a = 1, 2 }

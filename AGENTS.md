@@ -76,7 +76,7 @@ not a proof, and the honest sentence names what it measured.
 | Corpus | Documents | Accepted correctly | Rejected correctly |
 |---|---|---|---|
 | `test/zigzon/cases.json` — every `.zon` file in the zig tree plus every ZON snippet in `lib/std/zon/parse.zig` | 228 | **184 / 184** (values compared, not just "it parsed") | **44 / 44** |
-| `test/strictness/cases.json` — locally authored leniency probes, judged by the same oracle | 129 | **49 / 49** | **80 / 80** |
+| `test/strictness/cases.json` — locally authored leniency probes, judged by the same oracle | 163 | **68 / 68** | **95 / 95** |
 
 The corpora are **not bundled** — generating them downloads a pinned zig
 toolchain and source tarball (~80 MB, verified by SHA-256 and cached in
@@ -93,7 +93,7 @@ everywhere `npm test` / `go test ./...` / `cargo test` runs, CI included.
 If a corpus is still missing after that, the suites **FAIL** with
 instructions — they never skip. A conformance suite that quietly does not
 run reports a green tick while measuring nothing, which is worse than no
-suite. All three runners also pin the exact corpus census (184/44 and 49/80),
+suite. All three runners also pin the exact corpus census (184/44 and 68/95),
 so narrowing a corpus goes red instead of inflating the pass rate.
 
 The single exception is a host `scripts/fetch-zigzon.sh` has no pinned zig
@@ -153,18 +153,37 @@ which asserts the Go column on the host it runs on. The TypeScript
 column is measured, not pinned: nothing in this repository fails when it
 is repaired.
 
-That is the whole list. A second gap USED to sit above this one: an
-ordinary `"..."` string was lexed by the engine with the relaxed-JSON
-escape set, so `"\u0041"`, `"\b"`, `"\f"`, `"\/"`, `"\v"`, `"\u{D800}"`
-and `"\u{D800}\u{DC00}"` were accepted in all three runtimes where the
-oracle rejects each one. The plugin now lexes `"..."` itself (the
-`zonString` matcher, in all three runtimes, with the engine's string
-lexer off), the seven inputs are in `test/strictness/inputs.txt` and so
-in the corpus (the census moved from 48/74 to 49/80, with `.@"a\tb"`,
-`"\xe2\x82\xac"` and `'\0'` added at the same time), and
-[`test/spec/strict.tsv`](test/spec/strict.tsv) and
-[`test/spec/strings.tsv`](test/spec/strings.tsv) pin the rejections, with
-the engine's error code for each, without the download.
+That is the whole list. Two gaps USED to sit above this one, both
+repaired rather than recorded, and both found the same way: by putting
+inputs the corpora did not contain through the same oracle.
+
+The first was the string escape set. An ordinary `"..."` string was
+lexed by the engine with the relaxed-JSON escapes, so `"\u0041"`,
+`"\b"`, `"\f"`, `"\/"`, `"\v"`, `"\u{D800}"` and `"\u{D800}\u{DC00}"`
+were accepted in all three runtimes where the oracle rejects each one.
+The plugin now lexes `"..."` itself (the `zonString` matcher, in all
+three runtimes, with the engine's string lexer off), the seven inputs
+are in `test/strictness/inputs.txt` and so in the corpus (the census
+moved from 48/74 to 49/80, with `.@"a\tb"`, `"\xe2\x82\xac"` and `'\0'`
+added at the same time), and [`test/spec/strict.tsv`](test/spec/strict.tsv)
+and [`test/spec/strings.tsv`](test/spec/strings.tsv) pin the rejections,
+with the engine's error code for each, without the download.
+
+The second was a float with an EMPTY FRACTION. The number scanner
+started a fraction on a digit of the base, or on `p` for a hex float,
+which made `0xF.p1` one token but left `1.e3` as the number `1` and a
+stray `.`, so all three runtimes rejected `1.e3`, `1.E3`, `1.e+3`,
+`1.e-3`, `0.e3`, `1_0.e3` and `1.e1_0`, which the oracle accepts. The
+scanner now starts a fraction on the base's exponent letter too, which
+is the rule `0xF.p1` already followed. `1.` on its own is still the
+number and the stray dot, as the oracle reads it. Thirty-four probes
+went into `test/strictness/inputs.txt` with that repair (the census
+moved from 49/80 to 68/95), covering the accepted and rejected forms of
+an empty fraction, digit separators either side of the line, the
+`//!` / `///` / `////` comment boundary and two field-form rejections;
+[`test/spec/numbers.tsv`](test/spec/numbers.tsv) and
+[`test/spec/strict.tsv`](test/spec/strict.tsv) pin the same verdicts
+without the download.
 
 ## Repository map
 

@@ -1088,11 +1088,14 @@ func scanZonNumber(src string, start int) (zonNumScan, bool) {
 		if i+1 < len(src) {
 			after := src[i+1]
 			dv := digitVal(after)
-			// A `.` only starts a fraction when a digit of this base (or, for
-			// hex, the `p` exponent) follows; otherwise the number ends here
-			// and the stray `.` is a parse error (`1.`, `0.1.2`).
+			// A `.` only starts a fraction when a digit of this base, or this
+			// base's exponent letter, follows; otherwise the number ends here
+			// and the stray `.` is a parse error (`1.`, `0.1.2`). The
+			// fraction itself may then be EMPTY: zig reads `1.e3` and
+			// `0xF.p1` as one float token each.
 			startsFrac = (dv >= 0 && dv < base) ||
-				(base == 16 && (after == 'p' || after == 'P'))
+				(base == 16 && (after == 'p' || after == 'P')) ||
+				(base == 10 && (after == 'e' || after == 'E'))
 		}
 		if startsFrac {
 			if base != 10 && base != 16 {

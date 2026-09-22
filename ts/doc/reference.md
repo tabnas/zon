@@ -196,6 +196,7 @@ A trailing comma before `}` is allowed in both structs and tuples.
 | Binary | `0b101010` | `42` |
 | Hex float | `0x1.8p1` | `3` |
 | Exponent | `1e5`, `12_3.0E+77` | `100000`, `1.23e+79` |
+| Empty fraction | `1.e3`, `0xF.p1` | `1000`, `30` |
 | Digit separator | `1_000_000` | `1000000` |
 | Infinity / NaN | `inf`, `-inf`, `nan` | `Infinity`, `-Infinity`, `NaN` |
 | Big integer | `36893488147419103231` | `36893488147419103231n` (a `bigint`) |

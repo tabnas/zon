@@ -767,12 +767,15 @@ function scanZonNumber(src: string, start: number): ZonNumScan {
   if ('.' === src[i]) {
     const after = src[i + 1]
     const afterDV = undefined === after ? -1 : digitVal(after)
-    // A `.` only starts a fraction when a digit of this base (or, for hex,
-    // the `p` exponent) follows; otherwise it is a stray token and the
-    // number ends here — `1.` and `0.1.2` are rejected by the parser.
+    // A `.` only starts a fraction when a digit of this base, or this
+    // base's exponent letter, follows; otherwise it is a stray token and
+    // the number ends here — `1.` and `0.1.2` are rejected by the parser.
+    // The fraction itself may then be EMPTY: zig reads `1.e3` and `0xF.p1`
+    // as one float token each, and both are in the corpora.
     const startsFrac =
       (0 <= afterDV && afterDV < base) ||
-      (16 === base && ('p' === after || 'P' === after))
+      (16 === base && ('p' === after || 'P' === after)) ||
+      (10 === base && ('e' === after || 'E' === after))
     if (startsFrac) {
       if (16 !== base && 10 !== base) return fail() // invalid base for float
       isFloat = true

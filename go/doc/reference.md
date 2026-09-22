@@ -216,6 +216,7 @@ Allowed before `}` in both structs and tuples.
 | Binary | `0b101010` | `float64(42)` |
 | Hex float | `0x1.8p1` | `float64(3)` |
 | Exponent | `1e5` | `float64(100000)` |
+| Empty fraction | `1.e3`, `0xF.p1` | `float64(1000)`, `float64(30)` |
 | Digit separator | `1_000_000` | `float64(1000000)` |
 | Infinity / NaN | `inf`, `-inf`, `nan` | `math.Inf(1)`, `math.Inf(-1)`, `math.NaN()` |
 | Big integer | `36893488147419103231` | a `*big.Int` |
