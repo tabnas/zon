@@ -212,6 +212,29 @@ describe('zon', () => {
       { x: { a: 1 }, y: { a: 2 } })
   })
 
+  test('a field name is `.ident` or `.@"..."` and nothing else', () => {
+    // The zig 0.16.0 oracle answers each of these "expected field
+    // initializer". What rejects them here is `KEY: ['#TX', null, null,
+    // null]` in src/zon.ts: the engine overlays a token set by INDEX, so a
+    // bare `['#TX']` left the default `#NR`, `#ST` and `#VL` live and all
+    // of these parsed. The Rust port still accepts them: see DIVERGENCE.md,
+    // "A field name that is not a field".
+    for (const src of [
+      '.{ .a = 1, "b" = 2 }',
+      '.{ .a = 1, 1 = 2 }',
+      '.{ .a = 1, -1 = 2 }',
+      '.{ .a = 1, 0x1 = 2 }',
+      '.{ .a = 1, inf = 2 }',
+      '.{ .a = 1, true = 2 }',
+      '.{ .a = 1, null = 2 }',
+      ".{ .a = 1, 'x' = 2 }",
+      '.{ .a = 1, \\\\x\n = 2 }',
+    ]) {
+      assert.throws(() => parse(src), { code: 'unexpected' }, src)
+    }
+    assert.deepStrictEqual(parse('.{ .a = 1, .@"b" = 2 }'), { a: 1, b: 2 })
+  })
+
   test('doc comments are rejected, ordinary comments are not', () => {
     assert.throws(() => parse('//! doc\n1'), /doc comments/)
     assert.throws(() => parse('/// doc\n1'), /doc comments/)
