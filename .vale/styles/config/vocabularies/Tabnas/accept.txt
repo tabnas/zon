@@ -8,6 +8,7 @@
 # Vale enforce one spelling over the other, and it then reports the
 # other as a misspelling.
 
+[Cc]onfig
 [Dd]eps
 [Ee]num
 [Jj]sonic
