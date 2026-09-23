@@ -135,9 +135,10 @@ and a surrogate `"\u{D800}"`), duplicate struct field names, and `//!` /
 
 ### The known conformance gaps
 
-Measured on 2026-09-22 by putting each input below through the SAME
-pinned oracle the corpora use (`test/zigzon/vendor/oracle-build/oracle`)
-and through all three runtimes. None is in either corpus, and none can
+Measured on 2026-09-22 (the first) and 2026-09-23 (the second) by
+putting each input below through the SAME pinned oracle the corpora use
+(`test/zigzon/vendor/oracle-build/oracle`) and through all three
+runtimes. None is in either corpus, and none can
 be: a corpus row asserts the oracle's verdict, so adding one would turn
 the conformance suites red in all three runtimes rather than record
 anything. They are listed here, and pinned, so the prose above cannot
@@ -159,7 +160,32 @@ which asserts the Go column on the host it runs on. The TypeScript
 column is measured, not pinned: nothing in this repository fails when it
 is repaired.
 
-That is the whole list. Two gaps USED to sit above this one, both
+**2. A field name that is not a field, in Rust.** `.{ .a = 1, "b" = 2 }`,
+and the same with `1`, `-1`, `0x1`, `inf`, `true`, `null`, `'x'` or a
+`\\` string in place of `"b"`, is "expected field initializer" to the
+oracle and a rejection in TypeScript and Go, but the Rust port accepts
+each one. The plugin narrows the `KEY` token set to `#TX` in all three
+runtimes; the Rust engine resolves `#KEY` when it installs an alternate,
+before this plugin runs, so the narrowing never reaches jsonic's `pair`
+alternates there. Measured row by row in [`DIVERGENCE.md`](DIVERGENCE.md)
+under "A field name that is not a field is accepted in Rust", and pinned
+by `a_field_name_that_is_not_a_field_is_accepted_in_rust` in
+[`rs/tests/zon_test.rs`](rs/tests/zon_test.rs) (the Rust column),
+`TestFieldNameIsAField` in [`go/zon_test.go`](go/zon_test.go) and the
+field-name test in [`ts/test/zon.test.ts`](ts/test/zon.test.ts) (the
+rejection).
+
+The TypeScript half of that gap was older and went unmeasured until the
+move to `@tabnas/parser` 0.12.0. The plugin spelled the set `['#TX']`,
+and the engine overlays a token set onto the installed one BY INDEX, so
+that replaced slot 0 alone and left `#NR`, `#ST` and `#VL` live:
+TypeScript accepted every input above. Go rejected them against
+`github.com/tabnas/parser/go` v0.9.0, the version this module required
+until then, and accepted them against v0.12.0. The set is now spelled with
+explicit removals, `['#TX', null, null, null]` (`{"#TX", "", "", ""}` in
+Go), which repairs TypeScript and keeps Go where it was.
+
+That is the whole list. Two gaps USED to sit above these, both
 repaired rather than recorded, and both found the same way: by putting
 inputs the corpora did not contain through the same oracle.
 
@@ -331,6 +357,23 @@ requirement.
   `invalid_ascii`, `unexpected`), so `test/spec/strings.tsv` pins the
   code across the three runtimes. `'\0'` is not a Zig escape and the
   character matcher no longer takes it; NUL is `'\x00'` or `'\u{0}'`.
+- **A token set overlays the installed one BY INDEX; it does not
+  replace it.** `tokenSet: { KEY: ['#TX'] }` overwrites slot 0 of the
+  default `['#TX', '#NR', '#ST', '#VL']` and leaves the other three live,
+  so the narrowing is spelled `['#TX', null, null, null]` in TypeScript
+  and Rust and `{"#TX", "", "", ""}` in Go, where the empty name is the
+  removed position. The trailing entries are load-bearing: drop them and
+  `.{ .a = 1, "b" = 2 }` parses. (The Rust engine does not yet apply a
+  late narrowing to jsonic's alternates at all; see the known
+  conformance gaps above.)
+- **Go option flags are `*bool`, not `bool`.** Every tri-state option
+  field is a pointer, so nil means "not supplied, keep the default" and an
+  explicit `false` survives the options merge. That includes `Line`, `Lex`
+  and `EatLine` on a `CommentDef`: `Line` became `*bool` in
+  `github.com/tabnas/parser/go` v0.12.0 (tabnas/parser#208, #210), where a
+  plain `Line: true` stopped compiling. `go/zon.go` writes them with its
+  local `boolPtr`; `jsonic.Bool` (re-exported from the engine's
+  `tabnas.Bool`) does the same job without a helper of your own.
 - **Duplicate field names are caught in `@pair-bc/prepend`,** which must
   run before jsonic's own `@pair-bc` (that one performs the assignment,
   so by `@pair-ac` the collision is gone). `/prepend` is available here
@@ -355,7 +398,7 @@ requirement.
   three, with the test that pins it named. The list is short (big
   integers, lone surrogates, the depth budget, the column after a
   multi-line string, an exponent past the host integer, an option outside its declared
-  type): a new difference is either repaired or added there with its
+  type, a field name that is not a field): a new difference is either repaired or added there with its
   measurements and its test, in the same change. Those tests assert the
   RUST side; the TypeScript and Go columns are measurements, and nothing
   here fails if either of those runtimes changes. Never widen a parity

@@ -190,7 +190,16 @@ func Zon(j *jsonic.Jsonic, options map[string]any) error {
 		},
 		TokenSet: map[string][]string{
 			// ZON field names are identifiers (.ident or .@"...") only.
-			"KEY": {"#TX"},
+			//
+			// Mirrors the TS `KEY: ['#TX', null, null, null]`, and the
+			// three trailing empty names are LOAD-BEARING. The engine
+			// overlays a named token set onto the installed one BY INDEX,
+			// as TS does, so a bare {"#TX"} overwrites slot 0 and leaves
+			// the default #NR, #ST and #VL live behind it -- and
+			// `.{ .a = 1, "b" = 2 }` parsed. An empty name is the Go
+			// spelling of the canonical `null`: it clears its position.
+			// Pinned by TestFieldNameIsAField.
+			"KEY": {"#TX", "", "", ""},
 		},
 		// The engine's string matcher is off: `"..."` is lexed by the
 		// zonString matcher below with Zig's escape set, which is narrower
@@ -214,9 +223,9 @@ func Zon(j *jsonic.Jsonic, options map[string]any) error {
 		Comment: &jsonic.CommentOptions{
 			Lex: boolPtr(true),
 			Def: map[string]*jsonic.CommentDef{
-				"hash":  {Line: true, Start: "#", Lex: boolPtr(false)},
-				"slash": {Line: true, Start: "//", Lex: boolPtr(true)},
-				"multi": {Line: false, Start: "/*", End: "*/", Lex: boolPtr(false)},
+				"hash":  {Line: boolPtr(true), Start: "#", Lex: boolPtr(false)},
+				"slash": {Line: boolPtr(true), Start: "//", Lex: boolPtr(true)},
+				"multi": {Line: boolPtr(false), Start: "/*", End: "*/", Lex: boolPtr(false)},
 			},
 		},
 		Value: &jsonic.ValueOptions{

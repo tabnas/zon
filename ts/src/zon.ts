@@ -169,8 +169,16 @@ const Zon: Plugin = (tn: Tabnas, options: ZonOptions) => {
       },
     },
     tokenSet: {
-      // ZON field names are identifiers only.
-      KEY: ['#TX'],
+      // ZON field names are identifiers (`.ident` or `.@"..."`) only.
+      //
+      // The three trailing nulls are LOAD-BEARING. The engine overlays a
+      // named token set onto the installed one BY INDEX, so a bare
+      // `['#TX']` overwrites slot 0 and leaves the default `#NR`, `#ST`
+      // and `#VL` live behind it -- and `.{ .a = 1, "b" = 2 }` parsed. A
+      // `null` member clears its position. Pinned in test/zon.test.ts; the
+      // Rust port does not honour it yet (DIVERGENCE.md, "A field name that
+      // is not a field is accepted in Rust").
+      KEY: ['#TX', null, null, null],
     },
     // The engine's string matcher is off: `"..."` is lexed by the
     // zonString matcher below with Zig's escape set, which is narrower

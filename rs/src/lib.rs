@@ -325,8 +325,21 @@ fn options_document() -> serde_json::Value {
             },
         },
         "tokenSet": {
-            // ZON field names are identifiers only.
-            "KEY": ["#TX"],
+            // ZON field names are identifiers (`.ident` or `.@"..."`) only.
+            //
+            // Mirrors the TS `KEY: ['#TX', null, null, null]`, and the
+            // three trailing nulls are LOAD-BEARING. The engine overlays a
+            // named token set onto the installed one BY INDEX, so a bare
+            // `["#TX"]` overwrites slot 0 and leaves the default `#NR`,
+            // `#ST` and `#VL` live behind it -- and `.{ .a = 1, "b" = 2 }`
+            // parsed. A `null` member clears its position.
+            //
+            // It does NOT take effect in this port yet: the engine expands
+            // `#KEY` into its members when it installs an alternate, and
+            // tabnas-jsonic's `#KEY #CL` alternates are installed before
+            // this plugin runs. See DIVERGENCE.md, "A field name that is
+            // not a field is accepted in Rust", and the test that pins it.
+            "KEY": ["#TX", null, null, null],
         },
         // The engine's string matcher is off: `"..."` is lexed by the
         // zonString matcher with Zig's escape set, which is narrower than

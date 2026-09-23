@@ -356,6 +356,41 @@ func TestDuplicateStructFieldRejected(t *testing.T) {
 	assertEqual(t, "sibling-dup", got, want)
 }
 
+// TestFieldNameIsAField pins that only `.ident` / `.@"..."` names a
+// field: the zig 0.16.0 oracle answers each input below "expected field
+// initializer".
+//
+// What rejects them is the KEY token set {"#TX", "", "", ""} in zon.go.
+// The engine overlays a token set by INDEX, so a bare {"#TX"} left the
+// default #NR, #ST and #VL live, and with github.com/tabnas/parser/go
+// v0.12.0 every one of these parsed. The Rust port still accepts them:
+// see DIVERGENCE.md, "A field name that is not a field".
+func TestFieldNameIsAField(t *testing.T) {
+	for _, src := range []string{
+		`.{ .a = 1, "b" = 2 }`,
+		`.{ .a = 1, 1 = 2 }`,
+		`.{ .a = 1, -1 = 2 }`,
+		`.{ .a = 1, 0x1 = 2 }`,
+		`.{ .a = 1, inf = 2 }`,
+		`.{ .a = 1, true = 2 }`,
+		`.{ .a = 1, null = 2 }`,
+		`.{ .a = 1, 'x' = 2 }`,
+		".{ .a = 1, \\\\x\n = 2 }",
+	} {
+		got, err := mustZon(t).Parse(src)
+		var te *jsonic.JsonicError
+		if !errors.As(err, &te) {
+			t.Errorf("%q: want ERROR:unexpected, got %#v, %v", src, got, err)
+			continue
+		}
+		if te.Code != "unexpected" {
+			t.Errorf("%q: got code %q, want unexpected", src, te.Code)
+		}
+	}
+	assertEqual(t, "quoted-field", parse(t, `.{ .a = 1, .@"b" = 2 }`),
+		map[string]any{"a": 1.0, "b": 2.0})
+}
+
 func TestDocCommentsRejected(t *testing.T) {
 	for _, src := range []string{"//! doc\n1", "/// doc\n1"} {
 		err := parseErr(t, src)

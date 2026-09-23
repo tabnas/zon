@@ -44,7 +44,8 @@ These exist because ZON is a JSON-family format layered on jsonic. A
   the jsonic lexer can't express. Your format needs its *own* matchers (or
   none).
 - **The token remaps** — `#CL` → `=` instead of `:`, nulling out bare
-  `{` `[` `]`, `KEY: ['#TX']`. These encode ZON's surface syntax.
+  `{` `[` `]`, `KEY: ['#TX', null, null, null]`. These encode ZON's
+  surface syntax.
 - **The `enumTag` / `charAsNumber` plugin options** and the `@val-ac`
   enum-rewrap hook.
 
@@ -120,6 +121,15 @@ tokens — so your grammar never mentions whitespace. Two other token sets
 matter: `VAL` and `KEY` (both `['#TX','#NR','#ST','#VL']` by default) list
 which tokens may stand as a value or a key.
 
+**A token set you pass OVERLAYS the installed one, index by index; it
+does not replace it.** `KEY: ['#TX']` overwrites slot 0 and leaves `#NR`,
+`#ST` and `#VL` live behind it, so it narrows nothing. Clear the tail
+explicitly: `KEY: ['#TX', null, null, null]` in TypeScript (and in a
+serialized grammar's `options`, which is what Rust reads), and
+`TokenSet: map[string][]string{"KEY": {"#TX", "", "", ""}}` in Go, where
+the empty name is the removed position. `[]` changes nothing. ZON shipped
+the one-entry spelling for a while, and `.{ .a = 1, "b" = 2 }` parsed.
+
 ### Parser — rules, alts, and the result value
 
 The parser runs a stack of **rules**. Each rule has an **open** phase and
@@ -176,6 +186,7 @@ each child into it on close. ZON reuses jsonic's `val`/`map`/`list`/
   grammarDef.options = {
     rule:   { exclude: '...', start: 'val' },
     fixed:  { token: { '#CL': '=', '#OB': null } },
+    tokenSet: { KEY: ['#TX', null, null, null] },  // nulls clear the default tail
     string: { /* ... */ },
     lex:    { match: { myMatcher: { order: 1e5, make: buildMyMatcher() } } },
   }
@@ -184,6 +195,24 @@ each child into it on close. ZON reuses jsonic's `val`/`map`/`list`/
   Per-plugin scalar options ride on `tn.options({ config: { modify: {...} } })`.
   Tagging every alt with one group (`g: 'myplugin'`) lets callers
   `rule.exclude: 'myplugin'` to turn your plugin off.
+- **Go option flags are `*bool`, never `bool`.** In the Go port every
+  tri-state option field is a pointer, so nil means "not supplied, keep
+  the default" and an explicit `false` survives the options merge. That
+  includes `Line`, `Lex` and `EatLine` on a comment definition: `Line`
+  became `*bool` in `github.com/tabnas/parser/go` v0.12.0, and a plain
+  `Line: true` no longer compiles. Build the pointer with `jsonic.Bool`
+  (or `tabnas.Bool` when you import the engine directly):
+  ```go
+  Comment: &jsonic.CommentOptions{
+      Lex: jsonic.Bool(true),
+      Def: map[string]*jsonic.CommentDef{
+          "slash": {Line: jsonic.Bool(true), Start: "//", Lex: jsonic.Bool(true)},
+          "multi": {Line: jsonic.Bool(false), Start: "/*", End: "*/", Lex: jsonic.Bool(false)},
+      },
+  },
+  ```
+  `go/zon.go` spells the same thing with a local `boolPtr` helper. Leave a
+  field nil to inherit the default definition of the same name.
 
 ---
 
