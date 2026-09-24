@@ -237,7 +237,7 @@ literal grammar exactly, so ZON's strictness is preserved:
 0b12    0o18    1abc    1e        0b1.1   0.1.2
 ```
 
-are all **rejected**, as the zig compiler rejects them. A leading `-` is a
+are all **rejected**, as the Zig compiler rejects them. A leading `-` is a
 negation prefix and may be separated by space (`- 1`); `-nan` is not a
 literal. An integer whose exact value does not fit a `float64` is returned
 as a `*big.Int` rather than silently rounded.

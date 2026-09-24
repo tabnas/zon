@@ -75,15 +75,15 @@ let value = tabnas_zon::parse(".{ .name = \"Alice\", .age = 30 }")?;
 ## Conformance
 
 On every document in the two corpora below, `@tabnas/zon` gives the
-verdict **ziglang/zig 0.16.0** gives, and the same value for each accepted
+verdict **`ziglang/zig` 0.16.0** gives, and the same value for each accepted
 one. The reference implementation is the judge, not this repo:
-`scripts/fetch-zigzon.sh` downloads a pinned zig 0.16.0, builds a small
+`scripts/fetch-zigzon.sh` downloads a pinned Zig 0.16.0, builds a small
 oracle around the compiler's own `std.zig.Ast` + `std.zig.ZonGen`, and has
-it rule on every ZON document in the zig tree.
+it rule on every ZON document in the Zig tree.
 
 | Corpus | Documents | Accepted correctly | Rejected correctly |
 |---|---|---|---|
-| Every `.zon` file in the zig tree, plus every snippet in `lib/std/zon/parse.zig` | 228 | 184 / 184 | 44 / 44 |
+| Every `.zon` file in the Zig tree, plus every snippet in `lib/std/zon/parse.zig` | 228 | 184 / 184 | 44 / 44 |
 | Leniency probes (`test/strictness/inputs.txt`), judged by the same oracle | 163 | 68 / 68 | 95 / 95 |
 
 Identical in all three runtimes. A corpus is a measurement, not a proof:
