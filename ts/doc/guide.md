@@ -32,7 +32,7 @@ The instance is reusable: build it once and call `.parse()` as many
 times as you like. (Building the grammar is the expensive part; do not
 reconstruct the instance per parse.)
 
-## Parse a realistic build.zig.zon
+## Parse a realistic `build.zig.zon`
 
 A ZON manifest mixes named struct fields with tuple-style `paths`
 lists and allows trailing commas and `//` line comments:

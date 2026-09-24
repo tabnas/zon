@@ -133,7 +133,7 @@ for the composition test, beside the repository.
 ## Differences from the canonical TypeScript
 
 On every row of the shared fixtures in [`../test/spec`](../test/spec)
-and every document in the two zig reference corpora, this crate gives
+and every document in the two Zig reference corpora, this crate gives
 the TypeScript verdict and the TypeScript value, and the suite fails if
 it stops. That is what is measured, and it is not a claim about every
 document ZON can express: the inputs outside those sets on which the
@@ -158,7 +158,7 @@ language has no type for:
   IEEE-754 double holds is a `bigint` in TypeScript and a `*big.Int` in
   Go. The engine's `Value` has no such variant, so this crate returns
   `{ "$big": "<decimal digits>" }` (`tabnas_zon::BIG_KEY`) rather than
-  rounding, the spelling the zig reference corpora already use for one.
+  rounding, the spelling the Zig reference corpora already use for one.
   Every integer a double holds exactly, `2^64` included, is a plain
   number.
 - **`inf`, `-inf` and `nan` are `f64` values**, as in both other
@@ -183,13 +183,13 @@ language has no type for:
   U+FFFD, where the canonical runtime keeps the UTF-16 code unit. Under
   `char_as_number` the value is the number 55296 in every runtime. A
   surrogate escape in a `"..."` string or a `.@"..."` identifier is
-  rejected in every runtime, as the zig oracle rejects it.
+  rejected in every runtime, as the Zig oracle rejects it.
 - **A document nested more than 127 containers deep fails** with the
   engine's `cancel` code. The engine walks a value with the call stack
   to display, convert or drop it, so an unbounded one ends the process
   rather than failing; the budget is the one `tabnas-jsonic` already
   applies, and TypeScript and Go set no limit. A `build.zig.zon`
-  manifest comes nowhere near it, and the deepest document in either zig
+  manifest comes nowhere near it, and the deepest document in either Zig
   corpus nests 7 levels.
 - **The column after a multi-line string is the true column.** The
   canonical runtime advances the column of a `\\` string run by the
@@ -199,7 +199,7 @@ language has no type for:
   same in all three, and this is the one position difference the
   register records.
 - **An exponent past what an integer holds saturates** to an infinity
-  or a zero, the answer the zig reference implementation gives on every
+  or a zero, the answer the Zig reference implementation gives on every
   row measured. The canonical runtime spells the exponent back into the
   literal it rebuilds and reads only a prefix once that spelling needs
   exponent form itself (from `1e21`), so `1e999999999999999999999` is
@@ -224,7 +224,7 @@ including formatting and the lockfile check, run `ci/rust/run.sh`.
 
 The suite runs every shared `../test/spec/*.tsv` fixture, the same files
 the TypeScript and Go suites run, building a fresh parser for each row's
-`opts` column. It also grades the two zig reference corpora
+`opts` column. It also grades the two Zig reference corpora
 (`test/zigzon/cases.json` and `test/strictness/cases.json`), generating
 them with `scripts/fetch-zigzon.sh` first when they are absent, exactly
 as the other two runtimes do: a corpus that is still missing afterwards

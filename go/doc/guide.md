@@ -23,7 +23,7 @@ The no-options path reuses a single cached parser instance internally,
 so repeated `tabnaszon.Parse(src)` calls do not rebuild the engine each time.
 It is safe for concurrent use.
 
-## Parse a realistic build.zig.zon
+## Parse a realistic `build.zig.zon`
 
 A ZON manifest mixes named struct fields with tuple-style `paths`
 lists and allows trailing commas and `//` line comments:

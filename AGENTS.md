@@ -50,7 +50,7 @@ sweep, an install or a fetch, a release, a wait on CI, a benchmark, a
 script or loop you write, and anything sent to the background.
 
 - **Minimal is enough.** One line with the step and a count, such as
-  `conformance: 412/1500 (27%)`, meets it. When no total is known, print
+  `conformance: 412 of 1500 (27%)`, meets it. When no total is known, print
   what is known (the step, the current item, the elapsed time) and say the
   percentage is unknown rather than inventing one.
 - **Build it into what you write.** A script or loop prints a line per
@@ -324,7 +324,8 @@ requirement.
 - *Monorepo:* clone `jsonic` and `parser` (plus `json`, `debug`,
   `railroad`) as siblings, build the TS halves (`cd parser/ts && npm
   install && npm run build`, likewise `jsonic/ts`), then work here. CI
-  (`.github/workflows/build.yml`) does this.
+  (`.github/workflows/ci.yml`, through the org-shared workflow it calls)
+  does the same with `parser support debug json jsonic`.
 - *Isolated single-repo checkout:* the `file:` symlinks dangle; install
   the registry versions instead. See
   [`TEMPLATE.md` §4](TEMPLATE.md#4-dev-environment-realities) for the exact
@@ -494,7 +495,7 @@ cargo clippy --all-targets --all-features -- -D warnings
 
 `make test-rs` from the repo root is the same thing; `ci/rust/run.sh` is
 the full Rust gate (adds `fmt --check`, the lockfile check and the MSRV
-pin), and `ci/workflows/rust.yml` is the staged workflow that runs it.
+pin), and `.github/workflows/rust.yml` is the workflow that runs it.
 
 The zig reference corpora are generated automatically by all three runtimes
 before they grade — `pretest` in `ts/`, `TestMain` in `go/`,
@@ -882,22 +883,20 @@ that suite is self-contained.
 
 ## CI
 
-`.github/workflows/build.yml` has two jobs, neither publishing to npm:
+`.github/workflows/ci.yml` is a caller: it delegates to the org-shared
+`tabnas/.github/.github/workflows/polyglot-ci.yml@main` and passes
+`deps: "parser support debug json jsonic"`, the siblings that workflow
+git-clones and builds this repository against. The operating systems,
+the Node and Go versions and the steps live in that shared workflow,
+and are not restated here. It publishes nothing;
+`.github/workflows/release.yml` handles releases.
 
-- **build** (Ubuntu/Windows/macOS, Node 24): sets
-  `git config --global core.autocrlf false` (CRLF would corrupt the
-  embedded grammar / line-sensitive sources), git-clones the tabnas
-  closure (`parser debug json abnf railroad jsonic`) as siblings, runs
-  `npm i && npm run build --if-present` for each (then `zon`), and
-  `npm test` here. Because `@tabnas/debug` is a devDependency, the
-  composition test runs as part of `npm test`.
-- **build-go** (Ubuntu/macOS, Go 1.24): clones the same siblings,
-  mirrors `admin/scripts/link.sh` by creating `vendor/` symlinks for any
-  `../vendor/` replaces and a `go work` over every non-vendor-replaced
-  module, then `go build` / `go test -v` here.
+It runs `npm test` in `ts/` and the Go tests in `go/`. Because
+`@tabnas/debug` is a devDependency, the composition test runs as part
+of `npm test`.
 
-The Rust gate is staged in `ci/workflows/rust.yml` (see `ci/README.md`):
-it clones `parser`, `json`, `jsonic`, `support` and `debug` beside the
+The Rust gate, `.github/workflows/rust.yml` (see `ci/README.md`),
+clones `parser`, `json`, `jsonic`, `support` and `debug` beside the
 checkout and runs `ci/rust/run.sh` on the MSRV pinned in `rs/Cargo.toml`.
 
 ## Agent tooling
