@@ -32,6 +32,9 @@ on:
       - 'go/zon.go'
       - 'go/zigzon_test.go'
       - 'DIVERGENCE.md'
+      # rs/tests/zigzon_test.rs checks the corpus census every Markdown page
+      # states, so a docs-only change can break this gate.
+      - '**/*.md'
       - 'ts/embed-grammar.js'
       - 'ci/rust/**'
       - '.github/workflows/rust.yml'
@@ -49,6 +52,9 @@ on:
       - 'go/zon.go'
       - 'go/zigzon_test.go'
       - 'DIVERGENCE.md'
+      # rs/tests/zigzon_test.rs checks the corpus census every Markdown page
+      # states, so a docs-only change can break this gate.
+      - '**/*.md'
       - 'ts/embed-grammar.js'
       - 'ci/rust/**'
       - '.github/workflows/rust.yml'
