@@ -494,7 +494,7 @@ cargo clippy --all-targets --all-features -- -D warnings
 
 `make test-rs` from the repo root is the same thing; `ci/rust/run.sh` is
 the full Rust gate (adds `fmt --check`, the lockfile check and the MSRV
-pin), and `ci/workflows/rust.yml` is the staged workflow that runs it.
+pin), and `.github/workflows/rust.yml` is the workflow that runs it.
 
 The zig reference corpora are generated automatically by all three runtimes
 before they grade — `pretest` in `ts/`, `TestMain` in `go/`,
@@ -896,8 +896,8 @@ that suite is self-contained.
   `../vendor/` replaces and a `go work` over every non-vendor-replaced
   module, then `go build` / `go test -v` here.
 
-The Rust gate is staged in `ci/workflows/rust.yml` (see `ci/README.md`):
-it clones `parser`, `json`, `jsonic`, `support` and `debug` beside the
+The Rust gate, `.github/workflows/rust.yml` (see `ci/README.md`),
+clones `parser`, `json`, `jsonic`, `support` and `debug` beside the
 checkout and runs `ci/rust/run.sh` on the MSRV pinned in `rs/Cargo.toml`.
 
 ## Agent tooling
