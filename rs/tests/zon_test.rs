@@ -323,6 +323,39 @@ fn doc_comments_are_rejected_and_ordinary_comments_are_not() {
 }
 
 #[test]
+fn every_declared_error_code_carries_its_own_hint() {
+    // A declared code without a hint of its own falls back to the engine's
+    // hint for an UNKNOWN code, which tells the reader the error is
+    // probably a bug in jsonic or a plugin.
+    for (src, code, want) in [
+        ("0X2A", "zon_number", "a lowercase base prefix"),
+        (".@\"\"", "zon_ident", "the quoted form must"),
+        ("'\\u{110000}'", "zon_char", "no higher than U+10FFFF"),
+        ("///x", "zon_doc_comment", "only plain // comments"),
+        (".{ .a = 1, .a = 2 }", "zon_dup_field", "and .a appears"),
+    ] {
+        let error = parse(src).unwrap_err();
+        assert_eq!(error.code, code, "{src}");
+        assert!(
+            error.hint.contains(want) && !error.hint.contains("probably a bug"),
+            "{src}: {}",
+            error.hint
+        );
+    }
+    let config = make().config();
+    for code in config.error.keys() {
+        assert!(config.hint.contains_key(code), "{code} has no hint");
+    }
+    // The zon_number hint's examples hold: these parse, those do not.
+    for src in ["42", "-7", "1_000", "3.14", "1e9", "0x2a", "0o17", "0b101"] {
+        assert!(parse(src).is_ok(), "{src} should parse");
+    }
+    for src in ["+1", "0123", "0X2A", ".5", "5.", "1__0"] {
+        assert!(parse(src).is_err(), "{src} should be rejected");
+    }
+}
+
+#[test]
 fn every_declared_error_code_is_raised_with_its_message() {
     for (src, code, message) in [
         ("0X2A", "zon_number", "invalid ZON number literal: 0X2A"),

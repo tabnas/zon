@@ -485,3 +485,28 @@ func TestExponentPastTheHostInteger(t *testing.T) {
 		}
 	}
 }
+
+// TestErrorCodesCarryTheirOwnHints: a declared code without a hint of its
+// own falls back to the engine's hint for an UNKNOWN code, which tells the
+// reader the error is probably a bug in jsonic or a plugin.
+func TestErrorCodesCarryTheirOwnHints(t *testing.T) {
+	for _, c := range []struct{ src, code, want string }{
+		{"0X2A", "zon_number", "a lowercase base prefix"},
+		{`.@""`, "zon_ident", "the quoted form must"},
+		{`'\u{110000}'`, "zon_char", "no higher than U+10FFFF"},
+		{"///x", "zon_doc_comment", "only plain // comments"},
+		{".{ .a = 1, .a = 2 }", "zon_dup_field", "and .a appears"},
+	} {
+		_, err := mustZon(t).Parse(c.src)
+		var te *jsonic.JsonicError
+		if !errors.As(err, &te) {
+			t.Fatalf("%q: want a %s error, got %v", c.src, c.code, err)
+		}
+		if te.Code != c.code {
+			t.Errorf("%q: code %q, want %q", c.src, te.Code, c.code)
+		}
+		if !strings.Contains(te.Hint, c.want) || strings.Contains(te.Hint, "probably a bug") {
+			t.Errorf("%q: hint %q", c.src, te.Hint)
+		}
+	}
+}

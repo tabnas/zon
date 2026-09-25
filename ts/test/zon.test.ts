@@ -242,3 +242,31 @@ describe('zon', () => {
     assert.strictEqual(parse('// two\n1'), 1)
   })
 })
+
+
+describe('error hints', () => {
+
+  // A declared code without a hint of its own falls back to the engine's
+  // hint for an UNKNOWN code, which tells the reader the error is probably
+  // a bug in jsonic or a plugin.
+  test('each declared code carries its own hint', () => {
+    const j = new Tabnas().use(jsonic).use(Zon, {})
+    const cases: [string, string, string][] = [
+      ['0X2A', 'zon_number', 'a lowercase base prefix'],
+      ['.@""', 'zon_ident', 'the quoted form must'],
+      ["'\\u{110000}'", 'zon_char', 'no higher than U+10FFFF'],
+      ['///x', 'zon_doc_comment', 'only plain // comments'],
+      ['.{ .a = 1, .a = 2 }', 'zon_dup_field', 'and .a appears'],
+    ]
+    for (const [src, code, want] of cases) {
+      assert.throws(() => j.parse(src), (err: any) => {
+        // The structured diagnostic is where the hint is exposed.
+        const diag = JSON.parse(JSON.stringify(err))
+        assert.equal(diag.code, code)
+        assert.ok(String(diag.hint).includes(want), String(diag.hint))
+        assert.ok(!String(diag.hint).includes('probably a bug'), String(diag.hint))
+        return true
+      })
+    }
+  })
+})

@@ -199,6 +199,16 @@ const Zon: Plugin = (tn: Tabnas, options: ZonOptions) => {
       zon_doc_comment: 'doc comments are not allowed in ZON: {src}',
       zon_dup_field: 'duplicate struct field name: {src}',
     },
+    // A hint for each code, keyed alike. Without one the engine falls back
+    // to its hint for an UNKNOWN code, which tells the reader the error is
+    // probably a bug in jsonic or a plugin.
+    hint: {
+      zon_number: 'A ZON number is a Zig literal, such as 42, -7, 1_000, 3.14, 1e9, 0x2a,\n0o17 or 0b101: no leading + or zero, a lowercase base prefix, digits on\nboth sides of a point, and an underscore only between two digits.',
+      zon_ident: 'A ZON field name is .name, a letter or underscore then letters, digits\nand underscores, or .@"text" for any other name; the quoted form must\nnot be empty or hold an invalid escape.',
+      zon_char: 'A ZON character literal holds exactly one character or escape between\nsingle quotes, as in \'a\', and names a code point no higher than U+10FFFF.',
+      zon_doc_comment: 'ZON allows only plain // comments. Doc comments, /// and //!, belong to\nZig source; change them to //.',
+      zon_dup_field: 'A struct literal may name each field only once, and {src} appears\nagain. Remove or rename the repeated field.',
+    },
     // Only `//` line comments in ZON.
     comment: {
       lex: true,
