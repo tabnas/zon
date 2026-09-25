@@ -817,6 +817,12 @@ This package declares **five** error codes, in the `options.error` table in
 | `zon_doc_comment` | a `//!` or `///` doc comment appears — ZON allows only plain `//` comments |
 | `zon_dup_field` | a struct literal repeats a field name |
 
+Each code also has a hint, in the `options.hint` table beside `error` in
+the same three places. A declared code without one falls back to the
+engine's hint for an *unknown* code, which tells the reader the error is
+probably a bug in jsonic or a plugin, so a new code gets its hint in the
+same change; each runtime's suite checks that every declared code has one.
+
 The machine-readable list is [`tabnas.plugin.json`](tabnas.plugin.json)
 (`errorCodes`). Keep it in step with the `error` table: the code is the
 contract a fixture pins with `ERROR:<code>`, and two runtimes that reject

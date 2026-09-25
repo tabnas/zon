@@ -485,3 +485,61 @@ func TestExponentPastTheHostInteger(t *testing.T) {
 		}
 	}
 }
+
+// TestErrorCodesCarryTheirOwnHints: a declared code without a hint of its
+// own falls back to the engine's hint for an UNKNOWN code, which tells the
+// reader the error is probably a bug in jsonic or a plugin.
+func TestErrorCodesCarryTheirOwnHints(t *testing.T) {
+	for _, c := range []struct{ src, code, want string }{
+		{"0X2A", "zon_number", "After a lowercase base prefix"},
+		{`.@""`, "zon_ident", "the quoted form must"},
+		{`'\u{110000}'`, "zon_char", "no higher than U+10FFFF"},
+		{"///x", "zon_doc_comment", "only plain // comments"},
+		{".{ .a = 1, .a = 2 }", "zon_dup_field", "and .a appears"},
+	} {
+		_, err := mustZon(t).Parse(c.src)
+		var te *jsonic.JsonicError
+		if !errors.As(err, &te) {
+			t.Fatalf("%q: want a %s error, got %v", c.src, c.code, err)
+		}
+		if te.Code != c.code {
+			t.Errorf("%q: code %q, want %q", c.src, te.Code, c.code)
+		}
+		if !strings.Contains(te.Hint, c.want) || strings.Contains(te.Hint, "probably a bug") {
+			t.Errorf("%q: hint %q", c.src, te.Hint)
+		}
+	}
+	// Every declared code, not only these, has a hint of its own.
+	o := mustZon(t).Options()
+	for code := range o.Error {
+		if strings.TrimSpace(o.Hint[code]) == "" {
+			t.Errorf("%s has no hint", code)
+		}
+	}
+}
+
+// TestZonNumberHintHolds: the zon_number hint describes the number
+// grammar, so the numbers it cites (and the accepted forms it must not
+// rule out) parse, and one breach of each of its rules is a zon_number
+// error.
+func TestZonNumberHintHolds(t *testing.T) {
+	j := mustZon(t)
+	for _, src := range []string{
+		"0", "42", "1_000", "3.14", "1.e3", "0x2a", "0x1.8p3", "0o17", "0b101",
+		"0.5e1_0", "0xF.p1", "0x.Fp1", "-0.0",
+	} {
+		if _, err := j.Parse(src); err != nil {
+			t.Errorf("%q should parse: %v", src, err)
+		}
+	}
+	for _, src := range []string{
+		"0X2A", "0x", "0x.p1", "0b102", "0o8", "0123", "0_0", "0b1.0", "0b1e1",
+		"1e", "0x1p", "1__0", "1_", "0x_2a", "-0", "-nan",
+	} {
+		_, err := j.Parse(src)
+		var te *jsonic.JsonicError
+		if !errors.As(err, &te) || te.Code != "zon_number" {
+			t.Errorf("%q: want a zon_number error, got %v", src, err)
+		}
+	}
+}

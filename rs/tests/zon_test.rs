@@ -323,6 +323,52 @@ fn doc_comments_are_rejected_and_ordinary_comments_are_not() {
 }
 
 #[test]
+fn every_declared_error_code_carries_its_own_hint() {
+    // A declared code without a hint of its own falls back to the engine's
+    // hint for an UNKNOWN code, which tells the reader the error is
+    // probably a bug in jsonic or a plugin.
+    for (src, code, want) in [
+        ("0X2A", "zon_number", "After a lowercase base prefix"),
+        (".@\"\"", "zon_ident", "the quoted form must"),
+        ("'\\u{110000}'", "zon_char", "no higher than U+10FFFF"),
+        ("///x", "zon_doc_comment", "only plain // comments"),
+        (".{ .a = 1, .a = 2 }", "zon_dup_field", "and .a appears"),
+    ] {
+        let error = parse(src).unwrap_err();
+        assert_eq!(error.code, code, "{src}");
+        assert!(
+            error.hint.contains(want) && !error.hint.contains("probably a bug"),
+            "{src}: {}",
+            error.hint
+        );
+    }
+    let config = make().config();
+    for code in config.error.keys() {
+        assert!(config.hint.contains_key(code), "{code} has no hint");
+    }
+}
+
+#[test]
+fn the_zon_number_hint_holds() {
+    // The hint describes the number grammar, so the numbers it cites (and
+    // the accepted forms it must not rule out) parse, and one breach of
+    // each of its rules is a zon_number error.
+    for src in [
+        "0", "42", "1_000", "3.14", "1.e3", "0x2a", "0x1.8p3", "0o17", "0b101", "0.5e1_0",
+        "0xF.p1", "0x.Fp1", "-0.0",
+    ] {
+        assert!(parse(src).is_ok(), "{src} should parse");
+    }
+    for src in [
+        "0X2A", "0x", "0x.p1", "0b102", "0o8", "0123", "0_0", "0b1.0", "0b1e1", "1e", "0x1p",
+        "1__0", "1_", "0x_2a", "-0", "-nan",
+    ] {
+        let code = parse(src).err().map(|e| e.code);
+        assert_eq!(code.as_deref(), Some("zon_number"), "{src}");
+    }
+}
+
+#[test]
 fn every_declared_error_code_is_raised_with_its_message() {
     for (src, code, message) in [
         ("0X2A", "zon_number", "invalid ZON number literal: 0X2A"),

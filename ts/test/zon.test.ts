@@ -242,3 +242,62 @@ describe('zon', () => {
     assert.strictEqual(parse('// two\n1'), 1)
   })
 })
+
+
+describe('error hints', () => {
+
+  // A declared code without a hint of its own falls back to the engine's
+  // hint for an UNKNOWN code, which tells the reader the error is probably
+  // a bug in jsonic or a plugin.
+  test('each declared code carries its own hint', () => {
+    const j = new Tabnas().use(jsonic).use(Zon, {})
+    const cases: [string, string, string][] = [
+      ['0X2A', 'zon_number', 'After a lowercase base prefix'],
+      ['.@""', 'zon_ident', 'the quoted form must'],
+      ["'\\u{110000}'", 'zon_char', 'no higher than U+10FFFF'],
+      ['///x', 'zon_doc_comment', 'only plain // comments'],
+      ['.{ .a = 1, .a = 2 }', 'zon_dup_field', 'and .a appears'],
+    ]
+    for (const [src, code, want] of cases) {
+      assert.throws(() => j.parse(src), (err: any) => {
+        // The structured diagnostic is where the hint is exposed.
+        const diag = JSON.parse(JSON.stringify(err))
+        assert.equal(diag.code, code)
+        assert.ok(String(diag.hint).includes(want), String(diag.hint))
+        assert.ok(!String(diag.hint).includes('probably a bug'), String(diag.hint))
+        return true
+      })
+    }
+    // Every declared code, not only these, has a hint of its own.
+    const options: any = j.options
+    for (const code of Object.keys(options.error)) {
+      assert.ok(String(options.hint[code] ?? '').trim(), code + ' has no hint')
+    }
+  })
+
+  // The zon_number hint describes the number grammar: the numbers it
+  // cites parse, and each form it rules out is a zon_number error.
+  test('the zon_number hint holds', () => {
+    const j = new Tabnas().use(jsonic).use(Zon, {})
+    for (const src of ZON_NUMBER_HINT.valid) {
+      assert.doesNotThrow(() => j.parse(src), src)
+    }
+    for (const src of ZON_NUMBER_HINT.invalid) {
+      assert.throws(() => j.parse(src), (err: any) => 'zon_number' === err.code, src)
+    }
+  })
+})
+
+
+// What the zon_number hint says, as inputs: the examples it cites and the
+// accepted forms it must not rule out, then one breach of each rule.
+const ZON_NUMBER_HINT = {
+  valid: [
+    '0', '42', '1_000', '3.14', '1.e3', '0x2a', '0x1.8p3', '0o17', '0b101',
+    '0.5e1_0', '0xF.p1', '0x.Fp1', '-0.0',
+  ],
+  invalid: [
+    '0X2A', '0x', '0x.p1', '0b102', '0o8', '0123', '0_0', '0b1.0', '0b1e1',
+    '1e', '0x1p', '1__0', '1_', '0x_2a', '-0', '-nan',
+  ],
+}
