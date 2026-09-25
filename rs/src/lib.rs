@@ -364,7 +364,7 @@ fn options_document() -> serde_json::Value {
         // back to its hint for an UNKNOWN code, which tells the reader the
         // error is probably a bug in jsonic or a plugin.
         "hint": {
-            "zon_number": "A ZON number is a Zig literal, such as 42, -7, 1_000, 3.14, 1e9, 0x2a,\n0o17 or 0b101: no leading + or zero, a lowercase base prefix, digits on\nboth sides of a point, and an underscore only between two digits.",
+            "zon_number": "A ZON number is a Zig literal, such as 0, 42, 1_000, 3.14, 1.e3, 0x2a,\n0x1.8p3, 0o17 or 0b101. After a lowercase base prefix every digit is of\nthat base, and there is at least one. A decimal integer part other\nthan 0 does not start with 0. Only decimal and hex numbers take a\nfraction or an exponent (e, or p for hex), and an exponent needs\ndigits. An underscore goes only between two digits. A negative zero is\nwritten -0.0, not -0, and nan takes no sign.",
             "zon_ident": "A ZON field name is .name, a letter or underscore then letters, digits\nand underscores, or .@\"text\" for any other name; the quoted form must\nnot be empty or hold an invalid escape.",
             "zon_char": "A ZON character literal holds exactly one character or escape between\nsingle quotes, as in 'a', and names a code point no higher than U+10FFFF.",
             "zon_doc_comment": "ZON allows only plain // comments. Doc comments, /// and //!, belong to\nZig source; change them to //.",
