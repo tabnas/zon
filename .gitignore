@@ -51,3 +51,5 @@ test/strictness/cases.json
 
 # Rust build output (rs/).
 target/
+
+.DS_Store
