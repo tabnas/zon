@@ -831,29 +831,29 @@ fn an_absurd_decimal_exponent_saturates() {
 }
 
 #[test]
-fn a_field_name_that_is_not_a_field_is_accepted_in_rust() {
+fn a_field_name_that_is_not_a_field_is_refused() {
     // The plugin narrows `KEY` to `#TX` with explicit removals,
-    // `["#TX", null, null, null]`, and TypeScript and Go both reject every
-    // row with it. The engine here expands `#KEY` into its members when it
-    // installs an alternate, and tabnas-jsonic's `#KEY #CL` alternates are
-    // in before this plugin runs, so the narrowing never reaches them. The
-    // rows are READ FROM THE REGISTER, and the count pins the table's size.
-    let rows = register_table(
-        "## A field name that is not a field is accepted in Rust",
-        "| input | zig 0.16.0 |",
-    );
-    assert_eq!(rows.len(), 8, "the field-name table holds eight rows");
-    for row in &rows {
-        let input = row[0].trim_matches('`');
-        for (column, cell) in [("zig", &row[1]), ("TypeScript", &row[2]), ("Go", &row[3])] {
-            assert_eq!(cell, "`ERROR`", "{input}: the {column} cell");
-        }
-        let value = parse(input).unwrap_or_else(|error| panic!("{input} parses here: {error}"));
-        assert_eq!(json(&value), row[4].trim_matches('`'), "{input}");
+    // `["#TX", null, null, null]`, and tabnas-jsonic's `#KEY #CL`
+    // alternates are installed before it runs. The engine resolves a token
+    // set against the options in force (tabnas/parser#217, engine 0.12.3),
+    // so the narrowing reaches them here as it does in TypeScript and Go,
+    // and each input the zig oracle answers "expected field initializer" is
+    // `unexpected` in all three. Until 0.12.3 this port accepted them, and
+    // DIVERGENCE.md recorded it.
+    for input in [
+        ".{ .a = 1, \"b\" = 2 }",
+        ".{ .a = 1, 1 = 2 }",
+        ".{ .a = 1, -1 = 2 }",
+        ".{ .a = 1, 0x1 = 2 }",
+        ".{ .a = 1, inf = 2 }",
+        ".{ .a = 1, true = 2 }",
+        ".{ .a = 1, null = 2 }",
+        ".{ .a = 1, 'x' = 2 }",
+        ".{ .a = 1, \\\\x\n = 2 }",
+    ] {
+        let error = parse(input).expect_err(input);
+        assert_eq!(error.code, "unexpected", "{input}");
     }
-    // The ninth input, which the table cannot hold on one line.
-    let value = parse(".{ .a = 1, \\\\x\n = 2 }").expect("a multi-line string key parses here");
-    assert_eq!(json(&value), r#"{"a":1,"x":2}"#);
     // A quoted field name is a field in all three runtimes.
     let value = parse(".{ .a = 1, .@\"b\" = 2 }").expect("a quoted field name parses");
     assert_eq!(json(&value), r#"{"a":1,"b":2}"#);

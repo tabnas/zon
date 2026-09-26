@@ -363,8 +363,8 @@ func TestDuplicateStructFieldRejected(t *testing.T) {
 // What rejects them is the KEY token set {"#TX", "", "", ""} in zon.go.
 // The engine overlays a token set by INDEX, so a bare {"#TX"} left the
 // default #NR, #ST and #VL live, and with github.com/tabnas/parser/go
-// v0.12.0 every one of these parsed. The Rust port still accepts them:
-// see DIVERGENCE.md, "A field name that is not a field".
+// v0.12.0 every one of these parsed. The Rust port refuses them too,
+// since engine 0.12.3 (tabnas/parser#217).
 func TestFieldNameIsAField(t *testing.T) {
 	for _, src := range []string{
 		`.{ .a = 1, "b" = 2 }`,

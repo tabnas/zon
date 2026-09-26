@@ -217,8 +217,8 @@ describe('zon', () => {
     // initializer". What rejects them here is `KEY: ['#TX', null, null,
     // null]` in src/zon.ts: the engine overlays a token set by INDEX, so a
     // bare `['#TX']` left the default `#NR`, `#ST` and `#VL` live and all
-    // of these parsed. The Rust port still accepts them: see DIVERGENCE.md,
-    // "A field name that is not a field".
+    // of these parsed. The Rust port refuses them too, since engine 0.12.3
+    // (tabnas/parser#217).
     for (const src of [
       '.{ .a = 1, "b" = 2 }',
       '.{ .a = 1, 1 = 2 }',
