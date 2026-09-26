@@ -175,9 +175,9 @@ const Zon: Plugin = (tn: Tabnas, options: ZonOptions) => {
       // named token set onto the installed one BY INDEX, so a bare
       // `['#TX']` overwrites slot 0 and leaves the default `#NR`, `#ST`
       // and `#VL` live behind it -- and `.{ .a = 1, "b" = 2 }` parsed. A
-      // `null` member clears its position. Pinned in test/zon.test.ts; the
-      // Rust port does not honour it yet (DIVERGENCE.md, "A field name that
-      // is not a field is accepted in Rust").
+      // `null` member clears its position. Pinned in test/zon.test.ts, and
+      // honoured by the Rust port too since engine 0.12.3
+      // (tabnas/parser#217).
       KEY: ['#TX', null, null, null],
     },
     // The engine's string matcher is off: `"..."` is lexed by the
@@ -916,4 +916,4 @@ export type { ZonOptions }
 // VERSION is this package's version. It MUST equal package.json "version":
 // the release orchestrator rewrites both, and the version test fails the
 // build if they drift. Mirrors `const VERSION` in go/zon.go.
-const VERSION = '0.5.9'
+const VERSION = '0.5.10'

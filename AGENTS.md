@@ -190,7 +190,7 @@ and a surrogate `"\u{D800}"`), duplicate struct field names, and `//!` /
 
 ### The known conformance gaps
 
-Measured on 2026-09-22 (the first) and 2026-09-23 (the second) by
+Measured on 2026-09-22 by
 putting each input below through the SAME pinned oracle the corpora use
 (`test/zigzon/vendor/oracle-build/oracle`) and through all three
 runtimes. None is in either corpus, and none can
@@ -215,33 +215,8 @@ which asserts the Go column on the host it runs on. The TypeScript
 column is measured, not pinned: nothing in this repository fails when it
 is repaired.
 
-**2. A field name that is not a field, in Rust.** `.{ .a = 1, "b" = 2 }`,
-and the same with `1`, `-1`, `0x1`, `inf`, `true`, `null`, `'x'` or a
-`\\` string in place of `"b"`, is "expected field initializer" to the
-oracle and a rejection in TypeScript and Go, but the Rust port accepts
-each one. The plugin narrows the `KEY` token set to `#TX` in all three
-runtimes; the Rust engine resolves `#KEY` when it installs an alternate,
-before this plugin runs, so the narrowing never reaches jsonic's `pair`
-alternates there. Measured row by row in [`DIVERGENCE.md`](DIVERGENCE.md)
-under "A field name that is not a field is accepted in Rust", and pinned
-by `a_field_name_that_is_not_a_field_is_accepted_in_rust` in
-[`rs/tests/zon_test.rs`](rs/tests/zon_test.rs) (the Rust column),
-`TestFieldNameIsAField` in [`go/zon_test.go`](go/zon_test.go) and the
-field-name test in [`ts/test/zon.test.ts`](ts/test/zon.test.ts) (the
-rejection).
-
-The TypeScript half of that gap was older and went unmeasured until the
-move to `@tabnas/parser` 0.12.0. The plugin spelled the set `['#TX']`,
-and the engine overlays a token set onto the installed one BY INDEX, so
-that replaced slot 0 alone and left `#NR`, `#ST` and `#VL` live:
-TypeScript accepted every input above. Go rejected them against
-`github.com/tabnas/parser/go` v0.9.0, the version this module required
-until then, and accepted them against v0.12.0. The set is now spelled with
-explicit removals, `['#TX', null, null, null]` (`{"#TX", "", "", ""}` in
-Go), which repairs TypeScript and keeps Go where it was.
-
-That is the whole list. Two gaps USED to sit above these, both
-repaired rather than recorded, and both found the same way: by putting
+That is the whole list. Three gaps USED to sit above it, all
+repaired rather than recorded, and all found the same way: by putting
 inputs the corpora did not contain through the same oracle.
 
 The first was the string escape set. An ordinary `"..."` string was
@@ -271,6 +246,26 @@ two field-form rejections;
 [`test/spec/numbers.tsv`](test/spec/numbers.tsv) and
 [`test/spec/strict.tsv`](test/spec/strict.tsv) pin the same verdicts
 without the download.
+
+The third was a field name that is not a field. `.{ .a = 1, "b" = 2 }`,
+and the same with `1`, `-1`, `0x1`, `inf`, `true`, `null`, `'x'` or a
+`\\` string in place of `"b"`, is "expected field initializer" to the
+oracle. TypeScript accepted every one until the move to
+`@tabnas/parser` 0.12.0: the plugin spelled the set `['#TX']`, and the
+engine overlays a token set onto the installed one BY INDEX, so that
+replaced slot 0 alone and left `#NR`, `#ST` and `#VL` live. Go rejected
+them against `github.com/tabnas/parser/go` v0.9.0 and accepted them
+against v0.12.0. The set is now spelled with explicit removals,
+`['#TX', null, null, null]` (`{"#TX", "", "", ""}` in Go), which
+repaired TypeScript and kept Go where it was. Rust went on accepting
+them, because its engine resolved `#KEY` when it installed jsonic's
+`pair` alternates, before this plugin narrows the set, until engine
+0.12.3 began resolving a token set against the options in force
+(tabnas/parser#217). All three reject them now:
+`TestFieldNameIsAField` in [`go/zon_test.go`](go/zon_test.go), the
+field-name test in [`ts/test/zon.test.ts`](ts/test/zon.test.ts) and
+`a_field_name_that_is_not_a_field_is_refused` in
+[`rs/tests/zon_test.rs`](rs/tests/zon_test.rs) pin it.
 
 ## Repository map
 
@@ -419,9 +414,10 @@ requirement.
   so the narrowing is spelled `['#TX', null, null, null]` in TypeScript
   and Rust and `{"#TX", "", "", ""}` in Go, where the empty name is the
   removed position. The trailing entries are load-bearing: drop them and
-  `.{ .a = 1, "b" = 2 }` parses. (The Rust engine does not yet apply a
-  late narrowing to jsonic's alternates at all; see the known
-  conformance gaps above.)
+  `.{ .a = 1, "b" = 2 }` parses. (jsonic's `pair` alternates are
+  installed before this plugin narrows the set, and all three engines
+  apply the narrowing to them; the Rust engine has since 0.12.3,
+  tabnas/parser#217.)
 - **Go option flags are `*bool`, not `bool`.** Every tri-state option
   field is a pointer, so nil means "not supplied, keep the default" and an
   explicit `false` survives the options merge. That includes `Line`, `Lex`
@@ -454,7 +450,7 @@ requirement.
   three, with the test that pins it named. The list is short (big
   integers, lone surrogates, the depth budget, the column after a
   multi-line string, an exponent past the host integer, an option outside its declared
-  type, a field name that is not a field): a new difference is either repaired or added there with its
+  type): a new difference is either repaired or added there with its
   measurements and its test, in the same change. Those tests assert the
   RUST side; the TypeScript and Go columns are measurements, and nothing
   here fails if either of those runtimes changes. Never widen a parity

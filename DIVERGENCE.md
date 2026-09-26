@@ -27,10 +27,8 @@ value as JSON, and an options cell; the runners compare after a JSON
 round trip (see [`test/AGENTS.md`](test/AGENTS.md)). A big integer, a
 reported column, a lone surrogate and an out-of-range exponent have no
 cell that says what differs, and the register would also need a `rust`
-column in all three runners before a row could carry one. That column
-is the only thing the field-name entry lacks: its values are plain
-JSON, and Rust alone differs. So each entry is pinned by a test in the
-port it belongs to, named below.
+column in all three runners before a row could carry one. So each entry
+is pinned by a test in the port it belongs to, named below.
 
 The Rust tests are in
 [`rs/tests/zon_test.rs`](rs/tests/zon_test.rs), under the heading
@@ -358,62 +356,3 @@ fails if either of those runtimes changes. What IS pinned about them is
 the arithmetic: `the_divergence_register_row_counts_are_derived` reads
 the two tables out of this file and re-derives "thirteen" and "six" from
 the cells, so a row added without re-counting the sentence goes red.
-
-## A field name that is not a field is accepted in Rust
-
-Every cell below was measured on 2026-09-23: the `zig` column through
-the pinned zig 0.16.0 oracle the conformance corpora use, TypeScript
-against `@tabnas/parser` 0.12.0 and `@tabnas/jsonic` 0.7.0, Go against
-`github.com/tabnas/parser/go` v0.12.0 and `github.com/tabnas/jsonic/go`
-v0.7.0, and Rust against sibling checkouts of the same two releases.
-`ERROR` is `ERROR:unexpected` in TypeScript and Go, and zig's message
-is "expected field initializer" on every row.
-
-| input | zig 0.16.0 | TypeScript | Go | Rust |
-|---|---|---|---|---|
-| `.{ .a = 1, "b" = 2 }` | `ERROR` | `ERROR` | `ERROR` | `{"a":1,"b":2}` |
-| `.{ .a = 1, 1 = 2 }` | `ERROR` | `ERROR` | `ERROR` | `{"a":1,"1":2}` |
-| `.{ .a = 1, -1 = 2 }` | `ERROR` | `ERROR` | `ERROR` | `{"a":1,"-1":2}` |
-| `.{ .a = 1, 0x1 = 2 }` | `ERROR` | `ERROR` | `ERROR` | `{"a":1,"0x1":2}` |
-| `.{ .a = 1, inf = 2 }` | `ERROR` | `ERROR` | `ERROR` | `{"a":1,"inf":2}` |
-| `.{ .a = 1, true = 2 }` | `ERROR` | `ERROR` | `ERROR` | `{"a":1,"true":2}` |
-| `.{ .a = 1, null = 2 }` | `ERROR` | `ERROR` | `ERROR` | `{"a":1,"null":2}` |
-| `.{ .a = 1, 'x' = 2 }` | `ERROR` | `ERROR` | `ERROR` | `{"a":1,"'x'":2}` |
-
-A ninth input has no single-line spelling: a `\\` multi-line string
-before the `=` (`.{ .a = 1, \\x` newline ` = 2 }`), which zig, TypeScript
-and Go reject the same way and Rust reads as `{"a":1,"x":2}`.
-
-**Rust-only, and owned by the engine's Rust port.** A field name is
-`.ident` or `.@"..."`, which the `zonDot` matcher lexes as `#TX`, so the
-plugin narrows the `KEY` token set to `#TX`. The engine overlays a token
-set onto the installed one BY INDEX, so the narrowing is spelled with
-explicit removals, `['#TX', null, null, null]`, whose `null` members
-clear the default `#NR`, `#ST` and `#VL`; Go spells a removed member as
-the empty name. All three runtimes carry that spelling. It takes effect
-in TypeScript and Go, whose `pair` alternates see the narrowed set
-although `@tabnas/jsonic` installed them before this plugin ran. The
-Rust engine expands `#KEY` into its members when it installs an
-alternate, and `tabnas-jsonic`'s `#KEY #CL` alternates are installed
-before this plugin runs, so the narrowing reaches only alternates
-installed after it, and none of this plugin's alternates name a key.
-
-Until this entry the plugin spelled the set `['#TX']`, which an
-index-wise overlay reads as a change to slot 0 alone. TypeScript
-therefore accepted every row above, against `@tabnas/parser` 0.10.0 as
-well as 0.12.0. Go rejected them against `github.com/tabnas/parser/go`
-v0.9.0, the version this module required before, and accepted them
-against v0.12.0, so the explicit removals went in with that dependency
-bump: they keep Go where it was and move TypeScript to the oracle.
-
-Owned by the Rust engine: the repair is for an installed alternate to
-see a token set narrowed after it was installed, as it does in the other
-two engines, after which this port matches with no change here. Pinned
-by `a_field_name_that_is_not_a_field_is_accepted_in_rust` in
-[`rs/tests/zon_test.rs`](rs/tests/zon_test.rs), which READS the table
-above out of this file and asserts the Rust column of every row, that
-the zig, TypeScript and Go cells are `ERROR`, and that the table holds
-eight rows. The other side is pinned too, because it is the canonical
-one: `TestFieldNameIsAField` in [`go/zon_test.go`](go/zon_test.go) and
-the field-name test in [`ts/test/zon.test.ts`](ts/test/zon.test.ts)
-assert the `unexpected` rejection of all nine inputs.

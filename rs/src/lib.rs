@@ -61,7 +61,7 @@ mod number;
 /// release orchestrator rewrites both, and `tests/version_test.rs` fails
 /// the build if they drift. Mirrors `VERSION` in `ts/src/zon.ts` and
 /// `const VERSION` in `go/zon.go`.
-pub const VERSION: &str = "0.5.9";
+pub const VERSION: &str = "0.5.10";
 
 /// The README's Rust examples run as doctests, so a stale one fails the
 /// gate rather than misleading the reader. Its `toml` and `bash` fences
@@ -334,11 +334,11 @@ fn options_document() -> serde_json::Value {
             // `#ST` and `#VL` live behind it -- and `.{ .a = 1, "b" = 2 }`
             // parsed. A `null` member clears its position.
             //
-            // It does NOT take effect in this port yet: the engine expands
-            // `#KEY` into its members when it installs an alternate, and
-            // tabnas-jsonic's `#KEY #CL` alternates are installed before
-            // this plugin runs. See DIVERGENCE.md, "A field name that is
-            // not a field is accepted in Rust", and the test that pins it.
+            // It takes effect in this port too. tabnas-jsonic's `#KEY #CL`
+            // alternates are installed before this plugin runs, and the
+            // engine resolves a token set against the options in force
+            // (tabnas/parser#217, engine 0.12.3); pinned by
+            // `a_field_name_that_is_not_a_field_is_refused`.
             "KEY": ["#TX", null, null, null],
         },
         // The engine's string matcher is off: `"..."` is lexed by the
