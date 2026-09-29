@@ -118,7 +118,7 @@ them:
 [dependencies]
 tabnas-zon = { path = "../zon/rs" }
 tabnas-jsonic = { path = "../jsonic/rs" }
-tabnas = { path = "../parser/rs" }
+tabnas = { package = "tabnas-parser", path = "../parser/rs" }
 ```
 
 All three entries are needed. A crate's dependencies are not passed on to
