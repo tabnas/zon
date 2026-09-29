@@ -306,7 +306,7 @@ requirement.
   (`github.com/tabnas/{jsonic,json,parser}/go`, at the versions pinned in
   that file) with **no `replace`** — `go build`/`go test` resolve them
   from the module proxy.
-- Rust: `rs/Cargo.toml` takes `tabnas = { path = "../../parser/rs" }`,
+- Rust: `rs/Cargo.toml` takes `tabnas = { package = "tabnas-parser", path = "../../parser/rs" }`,
   `tabnas-jsonic = { path = "../../jsonic/rs" }` (which takes
   `tabnas-json` by path itself) and, for the tests,
   `tabnas-support = { path = "../../support/rs" }` and

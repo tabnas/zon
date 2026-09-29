@@ -19,7 +19,7 @@ path = "src/lib.rs"
 # published, so there is no registry version to fall back on. tabnas-json
 # is not named here: tabnas-jsonic installs it, and its checkout is only
 # needed because tabnas-jsonic takes it by path.
-tabnas = { path = "../../parser/rs" }
+tabnas = { package = "tabnas-parser", path = "../../parser/rs" }
 tabnas-jsonic = { path = "../../jsonic/rs" }
 indexmap = "2"
 serde = { version = "1.0", features = ["derive"] }
