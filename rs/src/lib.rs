@@ -674,6 +674,36 @@ pub fn parse_with(src: &str, options: &ZonOptions) -> Result<Value, ZonError> {
     make_with(options).parse(src)
 }
 
+/// The plugin's manifest, `tabnas.plugin.json`, as the repository carries
+/// it. Its `translate` object is what a host that translates reads: the
+/// shape ZON is read as and written from (`tree`), the file that holds
+/// the render, and the sentences that say what the render does not keep.
+/// The crate embeds its own copy, `translate/manifest.json`, since a
+/// packaged crate holds nothing outside `rs/`; `tests/translate_test.rs`
+/// holds the copy to the file.
+///
+/// ```
+/// assert!(tabnas_zon::manifest_text().contains("\"translate\""));
+/// ```
+pub fn manifest_text() -> &'static str {
+    include_str!("../translate/manifest.json")
+}
+
+/// ZON's render, `alchemy/render.alc`, the file the manifest's
+/// `translate.render` names: a library of alchemy definitions, with no
+/// `export`, whose entry point `zon-render` writes a tree's events as one
+/// ZON document, a struct or tuple literal per container with every
+/// field name in the quoted identifier form. A host links it with its
+/// own program. The crate embeds its own copy, `translate/render.alc`,
+/// held to the file as the manifest's is.
+///
+/// ```
+/// assert!(tabnas_zon::render_text().contains("def zon-render [input]"));
+/// ```
+pub fn render_text() -> &'static str {
+    include_str!("../translate/render.alc")
+}
+
 // ---------------------------------------------------------------------------
 // The option overrides, against the canonical plugin
 // ---------------------------------------------------------------------------
