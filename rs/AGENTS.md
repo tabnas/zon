@@ -8,7 +8,7 @@ and this file only covers what is specific to this crate.
 
 | Path | |
 |---|---|
-| `src/lib.rs` | the embedded grammar text, the option overrides document, `ZonOptions`, the two lifecycle hooks, `zon`, `plugin`, `make`, `make_with`, `parse`, `parse_with`, and the unit tests that hold the overrides to `ts/src/zon.ts` |
+| `src/lib.rs` | the embedded grammar text, the option overrides document, `ZonOptions`, the two lifecycle hooks, `zon`, `plugin`, `make`, `make_with`, `parse`, `parse_with`, the translation parts' texts `manifest_text` and `render_text`, and the unit tests that hold the overrides to `ts/src/zon.ts` |
 | `src/lex.rs` | the six lex matchers (`zonDot`, `zonMultiString`, `zonChar`, `zonNumber`, `zonDocComment`, `zonString`) and the Zig string scanner they share with the `.@"..."` form |
 | `src/number.rs` | the Zig number-literal scanner and the small `BigUint` the exactness rule needs |
 | `tests/parity_test.rs` | every `../test/spec/*.tsv` fixture through `tabnas_support::Runner::new_with_row`, a fresh parser per row from its `opts` column |
@@ -17,8 +17,10 @@ and this file only covers what is specific to this crate.
 | `tests/perf_test.rs` | `parse()` reuses its instance; reuse beats rebuild-per-parse |
 | `tests/zon_test.rs` | in-language behaviour: the `go/zon_test.go` cases, the values with no JSON spelling, error codes and messages, the API, the embedded grammar, threads |
 | `tests/version_test.rs` | Cargo.toml == `VERSION` == ts/package.json |
+| `tests/translate_test.rs` | the embedded `translate/manifest.json` is `../tabnas.plugin.json`, the embedded `translate/render.alc` is the file its `translate.render` names, the shapes and the loss lines are well formed, and every definition in the render is named `zon-` |
 | `tests/common/mod.rs` | shared helpers: repo root, spec dir, value and failure conversion, the `opts` reader |
 | `README.md` | the crate front page, prose-gated; its `rust` fences are doctests of this crate (see below) |
+| `translate/` | the crate's copies of `../tabnas.plugin.json` and `../alchemy/render.alc`, which `include_str!` embeds; a packaged crate holds nothing outside `rs/`, so change the root file and copy it here |
 
 Crate `tabnas-zon`, library `tabnas_zon`. The engine (`tabnas`), the
 relaxed-JSON grammar (`tabnas-jsonic`, which itself takes `tabnas-json`
