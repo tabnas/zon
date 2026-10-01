@@ -21,6 +21,8 @@ on:
     branches: [ '**' ]
     paths:
       - 'rs/**'
+      - 'tabnas.plugin.json'
+      - 'alchemy/**'
       - 'test/spec/**'
       - 'zon-grammar.jsonic'
       - 'scripts/fetch-zigzon.sh'
@@ -41,6 +43,8 @@ on:
   pull_request:
     paths:
       - 'rs/**'
+      - 'tabnas.plugin.json'
+      - 'alchemy/**'
       - 'test/spec/**'
       - 'zon-grammar.jsonic'
       - 'scripts/fetch-zigzon.sh'
