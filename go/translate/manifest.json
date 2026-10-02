@@ -1,0 +1,58 @@
+{
+  "$schema": "https://tabnas.dev/schema/plugin.schema.json",
+  "name": "@tabnas/zon",
+  "go": "github.com/tabnas/zon/go",
+  "description": "Zig Object Notation (ZON) parsing for the tabnas engine.",
+  "base": "@tabnas/jsonic",
+  "engine": "@tabnas/parser",
+  "grammar": "zon-grammar.jsonic",
+  "extensions": [
+    ".zon"
+  ],
+  "languageId": "zon",
+  "pluginKind": "grammar",
+  "grammarKind": "closure",
+  "lexStream": "clean",
+  "syncGroups": [
+    "end",
+    "comma",
+    "close"
+  ],
+  "specDir": "test/spec",
+  "clib": {
+    "dir": "go/clib",
+    "library": "libtabnaszon",
+    "abi": "v1",
+    "errorCodes": [
+      "usage",
+      "grammar",
+      "handle",
+      "internal"
+    ]
+  },
+  "errorCodes": [
+    "zon_number",
+    "zon_ident",
+    "zon_char",
+    "zon_doc_comment",
+    "zon_dup_field"
+  ],
+  "docs": "https://tabnas.dev/docs/packages",
+  "repository": "https://github.com/tabnas/zon",
+  "versionSource": "ts/package.json",
+  "translate": {
+    "reads": "tree",
+    "writes": "tree",
+    "render": "alchemy/render.alc",
+    "loss": [
+      "Comments are not kept.",
+      "Every field name is written in the quoted identifier form, .@\"name\", whether or not it is a bare identifier.",
+      "Strings are written double-quoted with Zig's escapes, never as multiline string literals.",
+      "A character literal and an enum literal are written as the value the reader resolved them to, so neither reads back as a literal.",
+      "An empty struct is written .{}, which ZON reads as an empty tuple, so an empty object reads back as an empty array.",
+      "An object whose first member is $big, the reader's form of an integer no double holds exactly, is written as the integer its digits spell, and may hold no other member.",
+      "ZON has no field name for the empty string, so an object with that key is refused.",
+      "A field name holding U+0000 is written with an escape ZON does not read in an identifier, since the render cannot test a name for it."
+    ]
+  }
+}
