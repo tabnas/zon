@@ -916,3 +916,4 @@ org ships two things that already understand these grammars:
 
 Prefer them over ad-hoc scripts when exploring a grammar or checking a parse
 result.
+> **Naming:** Always spell the project name `tabnas`, all lowercase, including in prose and headings. Never write `TabNAS`.
