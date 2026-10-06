@@ -20,7 +20,7 @@ import tabnaszon "github.com/tabnas/zon/go"
 |---|---|
 | Module | `github.com/tabnas/zon/go` |
 | Package | `tabnaszon` |
-| Engine | `github.com/tabnas/jsonic/go` (pulled in transitively) |
+| Engine | `github.com/tabnas/parser/go`, imported as `tabnas`, with the base grammar from `github.com/tabnas/jsonic/go` |
 | `VERSION` | exported `const` string of the module version |
 
 ## Public API
@@ -41,9 +41,10 @@ result, err := tabnaszon.Parse(`.{ .a = 1 }`)
 // result: map[string]any{"a": float64(1)}
 ```
 
-### `func MakeJsonic(opts ...ZonOptions) *tabnasjsonic.Jsonic`
+### `func MakeJsonic(opts ...ZonOptions) *tabnas.Tabnas`
 
-Returns a reusable `*tabnasjsonic.Jsonic` instance configured for ZON
+Returns a reusable jsonic engine (`*tabnas.Tabnas`, the type jsonic's
+`Jsonic` aliases) configured for ZON
 parsing. Use this when parsing many strings with the same options:
 build once, call `.Parse()` per input.
 
@@ -56,7 +57,7 @@ result, err := j.Parse(`.{ 1, 2, 3 }`)
 A plugin-registration failure (a programming error with static inputs)
 panics rather than misbehaving silently.
 
-### `func Zon(j *tabnasjsonic.Jsonic, options map[string]any) error`
+### `func Zon(j *tabnas.Tabnas, options map[string]any) error`
 
 The raw plugin function. Usually invoked indirectly through
 `j.UseDefaults(tabnaszon.Zon, tabnaszon.Defaults, opts...)` or via `Parse` /

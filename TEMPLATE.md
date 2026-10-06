@@ -200,14 +200,17 @@ each child into it on close. ZON reuses jsonic's `val`/`map`/`list`/
   the default" and an explicit `false` survives the options merge. That
   includes `Line`, `Lex` and `EatLine` on a comment definition: `Line`
   became `*bool` in `github.com/tabnas/parser/go` v0.12.0, and a plain
-  `Line: true` no longer compiles. Build the pointer with `jsonic.Bool`
-  (or `tabnas.Bool` when you import the engine directly):
+  `Line: true` no longer compiles. Build the pointer with `tabnas.Bool`
+  (jsonic re-exports it as `jsonic.Bool`). Like `go/zon.go`, import the
+  engine as `tabnas "github.com/tabnas/parser/go"` for its names, and
+  keep `jsonic.` for jsonic's own API (`jsonic.Make`), so the Go port
+  depends on the engine as the TypeScript and Rust ports do:
   ```go
-  Comment: &jsonic.CommentOptions{
-      Lex: jsonic.Bool(true),
-      Def: map[string]*jsonic.CommentDef{
-          "slash": {Line: jsonic.Bool(true), Start: "//", Lex: jsonic.Bool(true)},
-          "multi": {Line: jsonic.Bool(false), Start: "/*", End: "*/", Lex: jsonic.Bool(false)},
+  Comment: &tabnas.CommentOptions{
+      Lex: tabnas.Bool(true),
+      Def: map[string]*tabnas.CommentDef{
+          "slash": {Line: tabnas.Bool(true), Start: "//", Lex: tabnas.Bool(true)},
+          "multi": {Line: tabnas.Bool(false), Start: "/*", End: "*/", Lex: tabnas.Bool(false)},
       },
   },
   ```

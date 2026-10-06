@@ -23,6 +23,7 @@ import (
 	"unicode/utf8"
 
 	jsonic "github.com/tabnas/jsonic/go"
+	tabnas "github.com/tabnas/parser/go"
 )
 
 // VERSION is this module's version. It MUST equal ts/package.json
@@ -95,7 +96,7 @@ const grammarText = `
 
 // Zon is a jsonic plugin that adds ZON parsing support.
 // Options are pre-merged with Defaults by jsonic.UseDefaults.
-func Zon(j *jsonic.Jsonic, options map[string]any) error {
+func Zon(j *tabnas.Tabnas, options map[string]any) error {
 	// Guard against re-invocation: SetOptions triggers plugin re-application.
 	if j.Decoration("zon-init") != nil {
 		return nil
@@ -114,13 +115,13 @@ func Zon(j *jsonic.Jsonic, options map[string]any) error {
 	// produced from the enum token. The val rule is declared in the grammar
 	// text, so wireStateActions binds this plain `@val-ac` name as an append
 	// to the val rule's AC phase (after jsonic's openval-restore @val-ac).
-	refs := map[jsonic.FuncRef]any{
+	refs := map[tabnas.FuncRef]any{
 		// Zig rejects a struct literal that repeats a field name. jsonic's
 		// own `@pair-bc-jsonic` performs the assignment (last one wins), so
 		// this guard has to run *before* it — hence `/prepend`. Go state
 		// actions cannot return an error token, so signal via ctx.ParseErr
 		// (the engine's own error channel) instead.
-		"@pair-bc/prepend": jsonic.StateAction(func(r *jsonic.Rule, ctx *jsonic.Context) {
+		"@pair-bc/prepend": tabnas.StateAction(func(r *tabnas.Rule, ctx *tabnas.Context) {
 			if r.U["pair"] != true {
 				return
 			}
@@ -143,8 +144,8 @@ func Zon(j *jsonic.Jsonic, options map[string]any) error {
 		}),
 	}
 	if enumTag != "" {
-		refs["@val-ac"] = jsonic.StateAction(func(r *jsonic.Rule, _ *jsonic.Context) {
-			if r.Child != nil && !jsonic.IsUndefined(r.Child.Node) {
+		refs["@val-ac"] = tabnas.StateAction(func(r *tabnas.Rule, _ *tabnas.Context) {
+			if r.Child != nil && !tabnas.IsUndefined(r.Child.Node) {
 				return
 			}
 			if r.OS == 0 || r.O0 == nil {
@@ -170,14 +171,14 @@ func Zon(j *jsonic.Jsonic, options map[string]any) error {
 	// All jsonic option overrides live on the grammar object so the plugin
 	// applies them atomically alongside its rule alts.
 	eqSrc := "="
-	gs.Options = &jsonic.Options{
-		Rule: &jsonic.RuleOptions{
+	gs.Options = &tabnas.Options{
+		Rule: &tabnas.RuleOptions{
 			// Remove jsonic extensions (implicit maps/lists, top-level commas,
 			// path dives). ZON uses explicit struct literals only.
 			Exclude: "jsonic,imp",
 			Start:   "val",
 		},
-		Fixed: &jsonic.FixedOptions{
+		Fixed: &tabnas.FixedOptions{
 			Token: map[string]*string{
 				// Bare `{`, `[`, `]` are not valid in ZON. `.{` is handled by
 				// the custom zonDot lex matcher below.
@@ -204,13 +205,13 @@ func Zon(j *jsonic.Jsonic, options map[string]any) error {
 		// The engine's string matcher is off: `"..."` is lexed by the
 		// zonString matcher below with Zig's escape set, which is narrower
 		// than the relaxed-JSON one and refuses a surrogate `\u{...}`.
-		String: &jsonic.StringOptions{
+		String: &tabnas.StringOptions{
 			Lex: boolPtr(false),
 		},
 		// jsonic's relaxed number lexer accepts `+1`, `.5`, `5.`, `0123`,
 		// `1__0` and friends, none of which are ZON. The zonNumber matcher
 		// below implements Zig's numeric literal grammar exactly instead.
-		Number: &jsonic.NumberOptions{
+		Number: &tabnas.NumberOptions{
 			Lex: boolPtr(false),
 		},
 		Error: map[string]string{
@@ -230,30 +231,30 @@ func Zon(j *jsonic.Jsonic, options map[string]any) error {
 			"zon_doc_comment": "ZON allows only plain // comments. Doc comments, /// and //!, belong to\nZig source; change them to //.",
 			"zon_dup_field":   "A struct literal may name each field only once, and {src} appears\nagain. Remove or rename the repeated field.",
 		},
-		Comment: &jsonic.CommentOptions{
+		Comment: &tabnas.CommentOptions{
 			Lex: boolPtr(true),
-			Def: map[string]*jsonic.CommentDef{
+			Def: map[string]*tabnas.CommentDef{
 				"hash":  {Line: boolPtr(true), Start: "#", Lex: boolPtr(false)},
 				"slash": {Line: boolPtr(true), Start: "//", Lex: boolPtr(true)},
 				"multi": {Line: boolPtr(false), Start: "/*", End: "*/", Lex: boolPtr(false)},
 			},
 		},
-		Value: &jsonic.ValueOptions{
+		Value: &tabnas.ValueOptions{
 			Lex: boolPtr(true),
-			Def: map[string]*jsonic.ValueDef{
+			Def: map[string]*tabnas.ValueDef{
 				"true":  {Val: true},
 				"false": {Val: false},
 				"null":  {Val: nil},
 			},
 		},
-		Text: &jsonic.TextOptions{
+		Text: &tabnas.TextOptions{
 			// Disabled: the default text matcher would consume identifiers,
 			// but in ZON identifiers only appear as `.ident` and are handled
 			// by the custom zonDot matcher.
 			Lex: boolPtr(false),
 		},
-		Lex: &jsonic.LexOptions{
-			Match: map[string]*jsonic.MatchSpec{
+		Lex: &tabnas.LexOptions{
+			Match: map[string]*tabnas.MatchSpec{
 				"zonDot":         {Order: 100000, Make: buildZonDotMatcher()},
 				"zonMultiString": {Order: 110000, Make: buildZonMultiStringMatcher()},
 				"zonChar":        {Order: 120000, Make: buildZonCharMatcher(charAsNumber)},
@@ -267,9 +268,9 @@ func Zon(j *jsonic.Jsonic, options map[string]any) error {
 	}
 	// Tag every alt in this grammar with the 'zon' group so callers can
 	// selectively exclude zon alts via rule.exclude.
-	setting := &jsonic.GrammarSetting{
-		Rule: &jsonic.GrammarSettingRule{
-			Alt: &jsonic.GrammarSettingAlt{G: "zon"},
+	setting := &tabnas.GrammarSetting{
+		Rule: &tabnas.GrammarSettingRule{
+			Alt: &tabnas.GrammarSettingAlt{G: "zon"},
 		},
 	}
 	if err := j.Grammar(gs, setting); err != nil {
@@ -309,7 +310,7 @@ func (o ZonOptions) toMap() map[string]any {
 
 // MakeJsonic returns a reusable Jsonic instance configured for ZON parsing.
 // Use this when parsing multiple ZON strings with the same options.
-func MakeJsonic(opts ...ZonOptions) *jsonic.Jsonic {
+func MakeJsonic(opts ...ZonOptions) *tabnas.Tabnas {
 	j := jsonic.Make()
 	var m map[string]any
 	if len(opts) > 0 {
@@ -330,7 +331,7 @@ func MakeJsonic(opts ...ZonOptions) *jsonic.Jsonic {
 // instance is safe for concurrent use. Mirrors @tabnas/json's Parse.
 var (
 	defaultOnce   sync.Once
-	defaultParser *jsonic.Jsonic
+	defaultParser *tabnas.Tabnas
 )
 
 // Parse parses a ZON string and returns the resulting value. Convenience
@@ -354,9 +355,9 @@ func Parse(src string, opts ...ZonOptions) (any, error) {
 //	`.@"any name"` -> #TX (Val = the decoded string, Use["zonEnum"] = true)
 //
 // Runs ahead of the fixed-token matcher so it reliably owns the `.` prefix.
-func buildZonDotMatcher() jsonic.MakeLexMatcher {
-	return func(cfg *jsonic.LexConfig, _ *jsonic.Options) jsonic.LexMatcher {
-		return func(lex *jsonic.Lex, _ *jsonic.Rule) *jsonic.Token {
+func buildZonDotMatcher() tabnas.MakeLexMatcher {
+	return func(cfg *tabnas.LexConfig, _ *tabnas.Options) tabnas.LexMatcher {
+		return func(lex *tabnas.Lex, _ *tabnas.Rule) *tabnas.Token {
 			pnt := lex.Cursor()
 			src := lex.Src
 			sI := pnt.SI
@@ -376,11 +377,11 @@ func buildZonDotMatcher() jsonic.MakeLexMatcher {
 
 			// `.{` opens a struct literal. Decide map vs list by peeking.
 			if dI < len(src) && src[dI] == '{' {
-				var tkn *jsonic.Token
+				var tkn *tabnas.Token
 				if peekIsMapOpen(cfg, src, dI+1) {
-					tkn = lex.Token("#OB", jsonic.TinOB, nil, src[sI:dI+1])
+					tkn = lex.Token("#OB", tabnas.TinOB, nil, src[sI:dI+1])
 				} else {
-					tkn = lex.Token("#OS", jsonic.TinOS, nil, src[sI:dI+1])
+					tkn = lex.Token("#OS", tabnas.TinOS, nil, src[sI:dI+1])
 				}
 				advance(dI + 1)
 				return tkn
@@ -397,7 +398,7 @@ func buildZonDotMatcher() jsonic.MakeLexMatcher {
 					}
 					return zonBad(lex, "zon_ident", src, sI, bad)
 				}
-				tkn := lex.Token("#TX", jsonic.TinTX, val, src[sI:end])
+				tkn := lex.Token("#TX", tabnas.TinTX, val, src[sI:end])
 				tkn.Use = map[string]any{"zonEnum": true}
 				advance(end)
 				return tkn
@@ -412,7 +413,7 @@ func buildZonDotMatcher() jsonic.MakeLexMatcher {
 				eI++
 			}
 
-			tkn := lex.Token("#TX", jsonic.TinTX, src[dI:eI], src[sI:eI])
+			tkn := lex.Token("#TX", tabnas.TinTX, src[dI:eI], src[sI:eI])
 			tkn.Use = map[string]any{"zonEnum": true}
 			advance(eI)
 			return tkn
@@ -422,7 +423,7 @@ func buildZonDotMatcher() jsonic.MakeLexMatcher {
 
 // zonBad builds a #BD error token spanning src[start:end], so the error
 // message can quote the whole offending literal ({src}).
-func zonBad(lex *jsonic.Lex, code, src string, start, end int) *jsonic.Token {
+func zonBad(lex *tabnas.Lex, code, src string, start, end int) *tabnas.Token {
 	if end > len(src) {
 		end = len(src)
 	}
@@ -432,7 +433,7 @@ func zonBad(lex *jsonic.Lex, code, src string, start, end int) *jsonic.Token {
 			end = len(src)
 		}
 	}
-	tkn := lex.Token("#BD", jsonic.TinBD, nil, src[start:end])
+	tkn := lex.Token("#BD", tabnas.TinBD, nil, src[start:end])
 	tkn.Err = code
 	tkn.Why = code
 	return tkn
@@ -629,9 +630,9 @@ func invalidPrefixLen(b []byte) int {
 // of a surrogate `\u{...}` are not ZON, and the pinned zig oracle rejects
 // every one of them. The token is `#ST`, as the engine's would be, and a
 // fault carries the engine's code for it.
-func buildZonStringMatcher() jsonic.MakeLexMatcher {
-	return func(_ *jsonic.LexConfig, _ *jsonic.Options) jsonic.LexMatcher {
-		return func(lex *jsonic.Lex, _ *jsonic.Rule) *jsonic.Token {
+func buildZonStringMatcher() tabnas.MakeLexMatcher {
+	return func(_ *tabnas.LexConfig, _ *tabnas.Options) tabnas.LexMatcher {
+		return func(lex *tabnas.Lex, _ *tabnas.Rule) *tabnas.Token {
 			pnt := lex.Cursor()
 			src := lex.Src
 			sI := pnt.SI
@@ -642,7 +643,7 @@ func buildZonStringMatcher() jsonic.MakeLexMatcher {
 			if fault != nil {
 				return zonBad(lex, fault.code, src, sI, fault.end)
 			}
-			tkn := lex.Token("#ST", jsonic.TinST, val, src[sI:end])
+			tkn := lex.Token("#ST", tabnas.TinST, val, src[sI:end])
 			pnt.SI = end
 			pnt.CI += utf8.RuneCountInString(src[sI:end])
 			return tkn
@@ -653,7 +654,7 @@ func buildZonStringMatcher() jsonic.MakeLexMatcher {
 // peekIsMapOpen returns true if the source position inside `.{ ... }` begins
 // with a field name (`.ident` or `.@"..."`) followed by `=`, meaning a
 // struct/map literal rather than a tuple.
-func peekIsMapOpen(cfg *jsonic.LexConfig, src string, start int) bool {
+func peekIsMapOpen(cfg *tabnas.LexConfig, src string, start int) bool {
 	i := skipInsig(cfg, src, start)
 	if i >= len(src) || src[i] != '.' {
 		return false
@@ -679,14 +680,14 @@ func peekIsMapOpen(cfg *jsonic.LexConfig, src string, start int) bool {
 }
 
 // skipInsig advances past whitespace, newlines, and `//` line comments.
-func skipInsig(cfg *jsonic.LexConfig, src string, i int) int {
+func skipInsig(cfg *tabnas.LexConfig, src string, i int) int {
 	out, _, _ := skipInsigPos(cfg, src, i, 1, 1)
 	return out
 }
 
 // skipInsigPos is skipInsig with row/column tracking, so a token that follows
 // an insignificant run still reports an accurate source position.
-func skipInsigPos(cfg *jsonic.LexConfig, src string, i, rI, cI int) (int, int, int) {
+func skipInsigPos(cfg *tabnas.LexConfig, src string, i, rI, cI int) (int, int, int) {
 	for i < len(src) {
 		c := src[i]
 		if cfg.LineChars[rune(c)] {
@@ -715,7 +716,7 @@ func skipInsigPos(cfg *jsonic.LexConfig, src string, i, rI, cI int) (int, int, i
 // plain map may be configured instead.
 func nodeMapHasKey(node any, key string) bool {
 	switch n := node.(type) {
-	case *jsonic.OrderedMap:
+	case *tabnas.OrderedMap:
 		return n.Has(key)
 	case map[string]any:
 		_, ok := n[key]
@@ -734,9 +735,9 @@ func isIdCont(c byte) bool {
 
 // Multi-line Zig strings: consecutive lines starting with `\\`. Each `\\`
 // line contributes its content verbatim (after the `\\`); lines join with `\n`.
-func buildZonMultiStringMatcher() jsonic.MakeLexMatcher {
-	return func(cfg *jsonic.LexConfig, _ *jsonic.Options) jsonic.LexMatcher {
-		return func(lex *jsonic.Lex, _ *jsonic.Rule) *jsonic.Token {
+func buildZonMultiStringMatcher() tabnas.MakeLexMatcher {
+	return func(cfg *tabnas.LexConfig, _ *tabnas.Options) tabnas.LexMatcher {
+		return func(lex *tabnas.Lex, _ *tabnas.Rule) *tabnas.Token {
 			pnt := lex.Cursor()
 			src := lex.Src
 			if pnt.SI+1 >= len(src) || src[pnt.SI] != '\\' || src[pnt.SI+1] != '\\' {
@@ -798,7 +799,7 @@ func buildZonMultiStringMatcher() jsonic.MakeLexMatcher {
 
 			val := strings.Join(parts, "\n")
 			tsrc := src[startI:sI]
-			tkn := lex.Token("#ST", jsonic.TinST, val, tsrc)
+			tkn := lex.Token("#ST", tabnas.TinST, val, tsrc)
 			pnt.SI = sI
 			pnt.RI = rI
 			pnt.CI = startCI + (sI - startI)
@@ -811,9 +812,9 @@ func buildZonMultiStringMatcher() jsonic.MakeLexMatcher {
 // Produces a numeric code point (if charAsNumber) or a one-char string.
 // Unlike a string, a character literal is an INTEGER in Zig: `'\xD8'` is
 // 216 and `'\u{D800}'` is 55296, so neither goes through scanZigString.
-func buildZonCharMatcher(charAsNumber bool) jsonic.MakeLexMatcher {
-	return func(_ *jsonic.LexConfig, _ *jsonic.Options) jsonic.LexMatcher {
-		return func(lex *jsonic.Lex, _ *jsonic.Rule) *jsonic.Token {
+func buildZonCharMatcher(charAsNumber bool) tabnas.MakeLexMatcher {
+	return func(_ *tabnas.LexConfig, _ *tabnas.Options) tabnas.LexMatcher {
+		return func(lex *tabnas.Lex, _ *tabnas.Rule) *tabnas.Token {
 			pnt := lex.Cursor()
 			src := lex.Src
 			sI := pnt.SI
@@ -930,7 +931,7 @@ func buildZonCharMatcher(charAsNumber bool) jsonic.MakeLexMatcher {
 				val = string(rune(codepoint))
 			}
 			tsrc := src[sI:i]
-			tkn := lex.Token("#NR", jsonic.TinNR, val, tsrc)
+			tkn := lex.Token("#NR", tabnas.TinNR, val, tsrc)
 			pnt.SI = i
 			pnt.CI += i - sI
 			return tkn
@@ -941,9 +942,9 @@ func buildZonCharMatcher(charAsNumber bool) jsonic.MakeLexMatcher {
 // `//!` and `///` are Zig DOC comments, which ZON rejects outright. `////`
 // and longer runs are plain line comments. This matcher only ever fails the
 // lex: an ordinary `//` comment falls through to jsonic's comment matcher.
-func buildZonDocCommentMatcher() jsonic.MakeLexMatcher {
-	return func(_ *jsonic.LexConfig, _ *jsonic.Options) jsonic.LexMatcher {
-		return func(lex *jsonic.Lex, _ *jsonic.Rule) *jsonic.Token {
+func buildZonDocCommentMatcher() tabnas.MakeLexMatcher {
+	return func(_ *tabnas.LexConfig, _ *tabnas.Options) tabnas.LexMatcher {
+		return func(lex *tabnas.Lex, _ *tabnas.Rule) *tabnas.Token {
 			pnt := lex.Cursor()
 			src := lex.Src
 			sI := pnt.SI
@@ -968,9 +969,9 @@ func buildZonDocCommentMatcher() jsonic.MakeLexMatcher {
 // the `inf` and `nan` keywords, and a leading `-` on any of those except
 // `nan`. Integers whose exact value is not representable as a float64 are
 // returned as a *big.Int rather than silently rounded (TS: bigint).
-func buildZonNumberMatcher() jsonic.MakeLexMatcher {
-	return func(_ *jsonic.LexConfig, _ *jsonic.Options) jsonic.LexMatcher {
-		return func(lex *jsonic.Lex, _ *jsonic.Rule) *jsonic.Token {
+func buildZonNumberMatcher() tabnas.MakeLexMatcher {
+	return func(_ *tabnas.LexConfig, _ *tabnas.Options) tabnas.LexMatcher {
+		return func(lex *tabnas.Lex, _ *tabnas.Rule) *tabnas.Token {
 			pnt := lex.Cursor()
 			src := lex.Src
 			sI := pnt.SI
@@ -1011,7 +1012,7 @@ func buildZonNumberMatcher() jsonic.MakeLexMatcher {
 							val = math.NaN()
 						}
 						end := i + 3
-						tkn := lex.Token("#NR", jsonic.TinNR, val, src[sI:end])
+						tkn := lex.Token("#NR", tabnas.TinNR, val, src[sI:end])
 						pnt.SI = end
 						pnt.CI += end - sI
 						return tkn
@@ -1052,7 +1053,7 @@ func buildZonNumberMatcher() jsonic.MakeLexMatcher {
 			}
 
 			end := num.end
-			tkn := lex.Token("#NR", jsonic.TinNR, val, src[sI:end])
+			tkn := lex.Token("#NR", tabnas.TinNR, val, src[sI:end])
 			pnt.SI = end
 			pnt.CI += end - sI
 			return tkn
@@ -1290,7 +1291,7 @@ func isHex(s string) bool {
 }
 
 // parseGrammarText parses grammar text into a GrammarSpec with refs attached.
-func parseGrammarText(text string, refs map[jsonic.FuncRef]any) (*jsonic.GrammarSpec, error) {
+func parseGrammarText(text string, refs map[tabnas.FuncRef]any) (*tabnas.GrammarSpec, error) {
 	parsed, err := jsonic.Make().Parse(text)
 	if err != nil {
 		return nil, fmt.Errorf("zon: failed to parse grammar text: %w", err)
@@ -1298,23 +1299,23 @@ func parseGrammarText(text string, refs map[jsonic.FuncRef]any) (*jsonic.Grammar
 	// The parser now returns insertion-ordered *OrderedMap for parsed objects.
 	// A grammar spec is order-agnostic config, so flatten it to plain
 	// map[string]any trees before the map assertions below.
-	parsed = jsonic.Plainify(parsed)
+	parsed = tabnas.Plainify(parsed)
 	parsedMap, ok := parsed.(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("zon: grammar text did not parse to a map")
 	}
-	gs := &jsonic.GrammarSpec{Ref: refs}
+	gs := &tabnas.GrammarSpec{Ref: refs}
 	ruleMap, ok := parsedMap["rule"].(map[string]any)
 	if !ok {
 		return gs, nil
 	}
-	gs.Rule = make(map[string]*jsonic.GrammarRuleSpec, len(ruleMap))
+	gs.Rule = make(map[string]*tabnas.GrammarRuleSpec, len(ruleMap))
 	for name, rDef := range ruleMap {
 		rd, ok := rDef.(map[string]any)
 		if !ok {
 			continue
 		}
-		grs := &jsonic.GrammarRuleSpec{}
+		grs := &tabnas.GrammarRuleSpec{}
 		if openDef, ok := rd["open"]; ok {
 			grs.Open = buildGrammarAlts(openDef)
 		}
@@ -1327,19 +1328,19 @@ func parseGrammarText(text string, refs map[jsonic.FuncRef]any) (*jsonic.Grammar
 }
 
 // buildGrammarAlts converts a parsed-jsonic alt array into []*GrammarAltSpec.
-func buildGrammarAlts(def any) []*jsonic.GrammarAltSpec {
+func buildGrammarAlts(def any) []*tabnas.GrammarAltSpec {
 	arr, ok := def.([]any)
 	if !ok {
 		return nil
 	}
-	alts := make([]*jsonic.GrammarAltSpec, 0, len(arr))
+	alts := make([]*tabnas.GrammarAltSpec, 0, len(arr))
 	for _, item := range arr {
 		m, ok := item.(map[string]any)
 		if !ok {
-			alts = append(alts, &jsonic.GrammarAltSpec{})
+			alts = append(alts, &tabnas.GrammarAltSpec{})
 			continue
 		}
-		ga := &jsonic.GrammarAltSpec{}
+		ga := &tabnas.GrammarAltSpec{}
 		if s, ok := m["s"]; ok {
 			switch sv := s.(type) {
 			case string:
@@ -1367,7 +1368,7 @@ func buildGrammarAlts(def any) []*jsonic.GrammarAltSpec {
 			ga.R = r
 		}
 		if a, ok := m["a"].(string); ok {
-			ga.A = jsonic.FuncRef(a)
+			ga.A = tabnas.FuncRef(a)
 		}
 		if c, ok := m["c"]; ok {
 			switch cv := c.(type) {
