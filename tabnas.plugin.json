@@ -2,6 +2,7 @@
   "$schema": "https://tabnas.dev/schema/plugin.schema.json",
   "name": "@tabnas/zon",
   "go": "github.com/tabnas/zon/go",
+  "rust": "tabnas-zon",
   "description": "Zig Object Notation (ZON) parsing for the tabnas engine.",
   "base": "@tabnas/jsonic",
   "engine": "@tabnas/parser",
