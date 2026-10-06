@@ -24,9 +24,9 @@ options change plus a handful of alternates, not a new parser. The
 plugin embeds the canonical grammar text (from the repo-root
 `zon-grammar.jsonic`, kept in sync with the TypeScript source by the
 build), parses it with a throwaway jsonic instance into a
-`*tabnasjsonic.GrammarSpec`, attaches its `*tabnasjsonic.Options` overrides to that
+`*tabnas.GrammarSpec`, attaches its `*tabnas.Options` overrides to that
 spec, and applies the whole thing atomically via `j.Grammar(gs,
-&tabnasjsonic.GrammarSetting{Rule: ...G: "zon"})`.
+&tabnas.GrammarSetting{Rule: ...G: "zon"})`.
 
 ## ZON is not a superset of JSON
 

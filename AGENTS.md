@@ -272,7 +272,7 @@ field-name test in [`ts/test/zon.test.ts`](ts/test/zon.test.ts) and
 | Path | What it is |
 |---|---|
 | [`ts/`](ts/) | **Canonical** TypeScript implementation — the `@tabnas/zon` package. Plugin in `src/zon.ts`. Peer-depends on `@tabnas/jsonic` and `@tabnas/parser`. No CLI. |
-| [`go/`](go/) | Go port — `github.com/tabnas/zon/go` (`const VERSION` in `go/zon.go`). Plugin `Zon` plus `MakeJsonic` / `Parse` helpers. Requires the published `github.com/tabnas/jsonic/go` (no `replace` directive). |
+| [`go/`](go/) | Go port — `github.com/tabnas/zon/go` (`const VERSION` in `go/zon.go`). Plugin `Zon` plus `MakeJsonic` / `Parse` helpers. Requires the published `github.com/tabnas/parser/go`, imported as `tabnas` for the engine's types (`tabnas.Tabnas`, `tabnas.Rule`, `tabnas.Options`, …), and `github.com/tabnas/jsonic/go` for jsonic's own `jsonic.Make`, which builds the base engine in `MakeJsonic` and reads the grammar text (no `replace` directive). |
 | [`rs/`](rs/) | Rust port: the `tabnas-zon` crate (library `tabnas_zon`, `pub const VERSION` in `rs/src/lib.rs`), a plugin for the Rust `tabnas` engine over the `tabnas-jsonic` grammar. Supplies `zon` / `plugin()` (the engine plugin), typed `ZonOptions`, and `make` / `make_with` / `parse` / `parse_with`. Depends on sibling `tabnas/parser`, `tabnas/jsonic` (which takes `tabnas/json` by path) and (tests only) `tabnas/support` and `tabnas/debug` checkouts via Cargo `path` dependencies. `rs/AGENTS.md` has the crate-specific hazards. |
 | [`alchemy/render.alc`](alchemy/render.alc) | **ZON's render**, an [alchemy](https://github.com/tabnas/alchemy) library whose entry point `zon-render` writes a tree's events as one ZON document: a struct or tuple literal per container, every field name in the quoted identifier form `.@"name"`, strings double-quoted with Zig's escapes. The `translate` object in [`tabnas.plugin.json`](tabnas.plugin.json) names it, with the shapes (a tree in, a tree out) and the loss lines a host prints; the Rust crate embeds both as `render_text()` and `manifest_text()` from its copies in `rs/translate/` (change the root file, then copy it there; `rs/tests/translate_test.rs` holds the copies to the files). The round trip that runs the render lives in the host, aless, since this repository does not depend on alchemy. |
 | [`zon-grammar.jsonic`](zon-grammar.jsonic) | **Single source of truth** for the grammar-rule alts (the `val`/`list`/`elem`/`pair` overrides), authored in jsonic syntax. |
@@ -425,8 +425,8 @@ requirement.
   and `EatLine` on a `CommentDef`: `Line` became `*bool` in
   `github.com/tabnas/parser/go` v0.12.0 (tabnas/parser#208, #210), where a
   plain `Line: true` stopped compiling. `go/zon.go` writes them with its
-  local `boolPtr`; `jsonic.Bool` (re-exported from the engine's
-  `tabnas.Bool`) does the same job without a helper of your own.
+  local `boolPtr`; the engine's `tabnas.Bool` (which jsonic re-exports as
+  `jsonic.Bool`) does the same job without a helper of your own.
 - **Duplicate field names are caught in `@pair-bc/prepend`,** which must
   run before jsonic's own `@pair-bc` (that one performs the assignment,
   so by `@pair-ac` the collision is gone). `/prepend` is available here
