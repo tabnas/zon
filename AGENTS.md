@@ -290,19 +290,20 @@ field-name test in [`ts/test/zon.test.ts`](ts/test/zon.test.ts) and
 ## The tabnas engine dependency
 
 This repo sits **above jsonic** in the stack, not directly above the bare
-engine. The packages are **published on npm** (`@tabnas/*`); the
-`file:` paths in `package.json` are the monorepo dev layout, not a
-requirement.
+engine. The packages are **published on npm** (`@tabnas/*`), and
+`package.json` names no `file:` path: the monorepo dev layout lives
+outside it (see "Two dev models" below).
 
 - TypeScript: `@tabnas/jsonic` and `@tabnas/parser` are both
-  `peerDependencies` in `ts/package.json` (that file is the authority on
-  the accepted ranges), each mirrored as a `file:../../<dep>/ts`
-  devDependency for monorepo builds. `@tabnas/debug`
-  and `@tabnas/railroad` are **dev-only** `file:` devDependencies — debug
-  for the `debug-model.test.ts` composition test, railroad to regenerate
-  `ts/doc/grammar.{svg,txt}`. The supported Node floor is `engines.node`
-  in the same file (builds/tests also run on the previous Node LTS with
-  harmless `EBADENGINE` warnings).
+  `peerDependencies` in `ts/package.json` (`">=0"`; that file is the
+  authority on the accepted ranges), each mirrored as a `"*"`
+  devDependency. `@tabnas/debug`, `@tabnas/railroad` and `@tabnas/support`
+  are **dev-only** `"*"` devDependencies — debug for the
+  `debug-model.test.ts` composition test, railroad to regenerate
+  `ts/doc/grammar.{svg,txt}`, support for the shared fixture runner
+  `parity.test.ts` uses. The supported Node floor is `engines.node` in
+  the same file (`">=24"`; builds/tests also run on the previous Node LTS
+  with harmless `EBADENGINE` warnings).
 - Go: `go/go.mod` `require`s the published modules directly
   (`github.com/tabnas/{jsonic,json,parser}/go`, at the versions pinned in
   that file) with **no `replace`** — `go build`/`go test` resolve them
@@ -319,13 +320,17 @@ requirement.
 **Two dev models:**
 - *Monorepo:* clone `jsonic` and `parser` (plus `json`, `debug`,
   `railroad`) as siblings, build the TS halves (`cd parser/ts && npm
-  install && npm run build`, likewise `jsonic/ts`), then work here. CI
-  (`.github/workflows/ci.yml`, through the org-shared workflow it calls)
-  does the same with `parser support debug json jsonic`.
-- *Isolated single-repo checkout:* the `file:` symlinks dangle; install
-  the registry versions instead. See
-  [`TEMPLATE.md` §4](TEMPLATE.md#4-dev-environment-realities) for the exact
-  verified green-build recipe.
+  install && npm run build`, likewise `jsonic/ts`), then run admin's
+  `make link` after installing here: it symlinks
+  `ts/node_modules/@tabnas/*` to the checkouts without editing a tracked
+  file. CI (`.github/workflows/ci.yml`, through the org-shared workflow
+  it calls) does the same with `parser support debug json jsonic`,
+  linking each clone over its registry copy.
+- *Isolated single-repo checkout:* nothing extra to do. `npm install`
+  resolves the `"*"` devDependencies from the registry, so the build runs
+  against the published `@tabnas/*` packages. See
+  [`TEMPLATE.md` §4](TEMPLATE.md#4-dev-environment-realities) for the
+  recipe.
 
 ## Authority and alignment rules
 
@@ -462,7 +467,7 @@ requirement.
 TypeScript (from `ts/`):
 
 ```bash
-npm install            # auto-installs the @tabnas/jsonic + @tabnas/parser peers; resolves file: siblings
+npm install            # auto-installs the @tabnas/jsonic + @tabnas/parser peers; resolves the @tabnas devDependencies from the registry
 npm run build          # node embed-grammar.js && tsc --build src test
 npm test               # node --enable-source-maps --test "dist-test/*.test.js"
 ```
@@ -865,7 +870,7 @@ operating on the parse result must treat every value as hostile text.
 
 `ts/test/debug-model.test.ts` proves the plugin composes with the
 [`@tabnas/debug`](https://github.com/tabnas/debug) introspection plugin.
-`@tabnas/debug` is a `file:` devDependency, so plain `npm test` runs it;
+`@tabnas/debug` is a `"*"` devDependency, so plain `npm test` runs it;
 it resolves debug dynamically and **skips** when absent (set
 `TABNAS_DEBUG_PATH` to a built sibling checkout to force it). It asserts:
 
