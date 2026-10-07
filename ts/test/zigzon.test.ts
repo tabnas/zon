@@ -26,8 +26,8 @@
 // wired for (see ORACLE_HOST): there it reports a single explicit,
 // platform-named skip.
 //
-// `go/zigzon_test.go` runs the identical corpora, so the two runtimes cannot
-// drift.
+// `go/zigzon_test.go` and `rs/tests/zigzon_test.rs` run the identical
+// corpora, so the runtimes cannot drift.
 //
 // Do not shrink a corpus, add a skip list, or loosen the comparison to make
 // the number look better: it is a measuring instrument.

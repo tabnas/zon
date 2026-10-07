@@ -312,8 +312,9 @@ outside it (see "Two dev models" below).
   `tabnas-jsonic = { path = "../../jsonic/rs" }` (which takes
   `tabnas-json` by path itself) and, for the tests,
   `tabnas-support = { path = "../../support/rs" }` and
-  `tabnas-debug = { path = "../../debug/rs" }`. None of the crates
-  is published, so a sibling checkout is the only resolution;
+  `tabnas-debug = { path = "../../debug/rs" }`. The crates are on
+  crates.io, but the committed manifest stays path-only, so a sibling
+  checkout is the only resolution;
   `rs/Cargo.lock` is committed and `ci/rust/run.sh` holds it to the
   manifest, exempting only the siblings' recorded versions.
 
@@ -472,8 +473,8 @@ npm run build          # node embed-grammar.js && tsc --build src test
 npm test               # node --enable-source-maps --test "dist-test/*.test.js"
 ```
 
-`npm run build` **embeds the grammar first** (into `src/zon.ts` and
-`go/zon.go`), then `tsc --build`s both `src` and `test` — the tests are
+`npm run build` **embeds the grammar first** (into `src/zon.ts`,
+`go/zon.go` and `rs/src/lib.rs`), then `tsc --build`s both `src` and `test` — the tests are
 written in TypeScript and compiled to `dist-test/`, unlike some sibling
 repos that ship committed `.test.js`. The grammar diagram is regenerated
 with `@tabnas/railroad` off the live config (`ts/doc/grammar.{svg,txt}`).
@@ -523,7 +524,7 @@ same targets scoped to the package — `publish-go`/`tags-go`/`tidy-go`/`reset`
 The commands that prove a change is correct. Run from the repo root:
 
 ```bash
-make build && make test      # both runtimes — the check that matters
+make build && make test      # all three runtimes — the check that matters
 ```
 
 Narrower, when iterating:
@@ -616,12 +617,14 @@ The steps, in order:
    suite then passes against unreleased code while appearing to verify the
    published one. Reinstalling is the part that matters.
 
-   One thing a clean install does **not** isolate:
-   `ts/test/doc-examples.test.*` resolves `@tabnas/*` by filesystem path
-   (`const TABNAS = path.join(REPO, '..')`), not through `node_modules`. If
-   unbuilt sibling checkouts sit beside this repo, those blocks fail with
-   `MODULE_NOT_FOUND` no matter what you installed — build the siblings, or
-   verify somewhere they are absent.
+   The clean install covers the doc examples too:
+   `ts/test/doc-examples.test.*` resolves a doc example's `require`
+   through `node_modules` first, and only a `@tabnas/*` package that is
+   not installed falls back to the sibling checkout `../<x>/ts`
+   (`const TABNAS = path.join(REPO, '..')`), with `@tabnas/zon` itself
+   served from this repository's `ts/`. The tested examples name only
+   `@tabnas/jsonic` and `@tabnas/parser`, installed devDependencies, and
+   `@tabnas/zon`, so none of them reaches a sibling checkout.
 
    `npm test` already compiles here: `ts/package.json` sets `pretest` to
    `npm run build`, which npm runs automatically. No separate build step is
@@ -635,13 +638,17 @@ The steps, in order:
    ```bash
    (
      cd go
-     go mod edit -json | grep -q '"Replace": null' || { echo 'go.mod has a replace'; exit 1; }
+     go mod edit -json | jq -e '.Replace == null' >/dev/null || { echo 'go.mod has a replace'; exit 1; }
      GOWORK=off go test -count=1 ./...
    )
    ```
 
    `-count=1` because shared fixtures live outside the Go module, so a
-   changed corpus does not invalidate the test cache.
+   changed corpus does not invalidate the test cache. The check asks `jq`,
+   not `grep`: current Go leaves the `Replace` key out when there is no
+   replace, where older Go printed `"Replace": null`, and `jq` reads a
+   missing key as null, so the check passes on a clean `go.mod` and fails
+   on a replace either way.
 3. **Merge the bump through a reviewed PR.** That is the house convention —
    `CONTRIBUTING.md` squash-merges PRs and takes the title as the commit
    message — and what `release.yml`'s own header describes. A direct push to

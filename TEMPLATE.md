@@ -24,11 +24,11 @@ parity rules), see [`AGENTS.md`](AGENTS.md).
 | Piece | What to keep |
 |---|---|
 | **Dual-runtime layout** | `ts/` is canonical, `go/` tracks it. TS wins on any behaviour disagreement; change Go to match. Drop `go/` entirely if you only want TS. |
-| **Single-source grammar + embed** | One `*-grammar.jsonic` at the repo root is the only hand-edited grammar. `ts/embed-grammar.js` copies it verbatim into the `grammarText` literal in **both** `ts/src/<plugin>.ts` and `go/<plugin>.go`, between `// --- BEGIN/END EMBEDDED ... ---` markers. Never hand-edit between the markers; edit the `.jsonic` and run `npm run embed`. The Go embed rejects backticks (Go raw-string limitation). |
+| **Single-source grammar + embed** | One `*-grammar.jsonic` at the repo root is the only hand-edited grammar. `ts/embed-grammar.js` copies it verbatim into **all three** ports, the `grammarText` literal in `ts/src/<plugin>.ts` and `go/<plugin>.go` and `GRAMMAR_TEXT` in `rs/src/lib.rs`, between `// --- BEGIN/END EMBEDDED ... ---` markers. Never hand-edit between the markers; edit the `.jsonic` and run `npm run embed`. The Go embed rejects backticks (Go raw-string limitation), and the Rust one a `"##` run (its `r##` raw string). |
 | **node:test + dist layout** | Tests are authored in TS under `ts/test/*.test.ts`, compiled to `dist-test/`, run with `node --test "dist-test/*.test.js"`. `src` → `dist`, `test` → `dist-test`. No bundler, no jest. |
 | **doc-examples harness** | `ts/test/doc-examples.test.ts` is identical across tabnas repos. It scans markdown, runs ` ```js ` blocks that contain a `// =>` assertion, and checks each `<expr> // => <expected>`. Keep it; your README examples become tests for free. |
 | **Diataxis doc set** | `ts/doc/{tutorial,guide,reference,concepts}.md` (+ `go/doc/`). One file per quadrant, per runtime. Rewrite the prose; keep the four-file shape. |
-| **Makefile / CI shape** | Root `Makefile` wraps both runtimes (`build`/`test`/`clean`/`reset`, `publish-ts`, `publish-go V=x.y.z`, `tags-go`). `.github/workflows/ci.yml` calls the org-shared `polyglot-ci.yml` with this repository's `deps`, and `.github/workflows/release.yml` releases. Reuse the structure; swap the package name. |
+| **Makefile / CI shape** | Root `Makefile` wraps all three runtimes (`build`/`test`/`clean`/`reset`, `publish-ts`, `publish-go V=x.y.z`, `tags-go`). `.github/workflows/ci.yml` calls the org-shared `polyglot-ci.yml` with this repository's `deps`, and `.github/workflows/release.yml` releases. Reuse the structure; swap the package name. |
 | **package.json conventions** | Engine deps (`@tabnas/parser`, and `@tabnas/jsonic`/`@tabnas/abnf` if you base on one) are **`peerDependencies`** with the deliberately empty range `">=0"` — the descriptor generator reads the peer *keys*, and the ranges say nothing — each mirrored as a `"*"` **devDependency**. `@tabnas/debug`, `@tabnas/railroad` and `@tabnas/support` are dev-only `"*"` entries. **No `file:` paths**: monorepo wiring lives outside `package.json` (see §4). `engines.node` is `>=24`. |
 
 ### ZON-specific — rewrite for your format
@@ -68,7 +68,7 @@ they are and why.
 | **`CLAUDE.md`** | A pointer to `AGENTS.md` and nothing more. Guidance kept in two places drifts. |
 
 **Pin codes, not bare rejections.** Write an `ERROR:<code>` row in the shared
-`test/spec/*.tsv` fixtures (run by both runtimes) for *every* code you declare,
+`test/spec/*.tsv` fixtures (run by every runtime) for *every* code you declare,
 so a runtime that changes or loses a code goes red. The scaffold itself shipped
 with all five of its declared codes exercised only by bare `ERROR` cells —
 inherit the layout, not that gap.

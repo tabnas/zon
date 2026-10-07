@@ -171,7 +171,7 @@ has no separate integer type in the result tree.
 
 ### Error codes
 
-A failing input reports the same error **code** in both runtimes,
+A failing input reports the same error **code** in every runtime,
 including a malformed double-quoted string: the plugin lexes `"..."`
 itself, in every runtime, and gives a fault the engine's code for it
 (`unterminated_string`, `unprintable`, `invalid_unicode`,

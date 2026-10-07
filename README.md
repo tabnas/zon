@@ -37,9 +37,9 @@ npm install @tabnas/parser @tabnas/jsonic @tabnas/zon
 go get github.com/tabnas/zon/go@latest
 ```
 
-The Rust crate, `tabnas-zon` in [`rs/`](rs/), is consumed as a sibling
-checkout beside `tabnas/parser`, `tabnas/json` and `tabnas/jsonic`; see
-[`rs/README.md`](rs/README.md).
+The Rust crate, `tabnas-zon` in [`rs/`](rs/), is published on crates.io
+with the crates it builds on: `cargo add tabnas-zon tabnas-jsonic tabnas-parser`;
+see [`rs/README.md`](rs/README.md).
 
 ## One tiny example
 

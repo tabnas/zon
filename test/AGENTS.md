@@ -78,7 +78,7 @@ there.
 ## Rules
 
 - Prefer adding a fixture here over a one-off in-language assertion when a
-  case is expressible as input → output. That is what keeps the two
+  case is expressible as input → output. That is what keeps the
   runtimes honest against each other.
 - What a fixture **cannot** express, because every runner compares after a
   JSON round-trip: `bigint` / `*big.Int` / `$big` values, `Infinity`, `NaN`,
@@ -88,8 +88,8 @@ there.
   implementation REJECTS. Every verdict there came from the oracle in
   `scripts/fetch-zigzon.sh`, not from a judgement call — if you add a row,
   get the verdict the same way.
-- TypeScript is canonical. If the two runtimes disagree, the TS behaviour is
-  the expected value — unless Go has exposed a genuine TS defect, in which
+- TypeScript is canonical. If the runtimes disagree, the TS behaviour is the
+  expected value — unless another port has exposed a genuine TS defect, in which
   case fix TS first and pin the corrected behaviour here.
 - A new fixture must pass in ALL THREE runtimes: run `go test ./...` (from
   `go/`), `npm test` (from `ts/`) and `cargo test --all-targets` (from

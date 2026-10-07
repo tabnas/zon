@@ -107,9 +107,16 @@ fn main() {
 
 ## Install
 
-Neither the engine nor the grammars it builds on are published to a
-registry, so all of them are consumed as **sibling checkouts**, the
-standard tabnas development model. Clone
+The crate, the grammars it builds on and the engine are published on
+crates.io. The engine's package is `tabnas-parser`, imported in code as
+`tabnas`:
+
+```bash
+cargo add tabnas-zon tabnas-jsonic tabnas-parser
+```
+
+To build from source instead, as this repository does, all of them are
+consumed as **sibling checkouts**, the standard tabnas development model. Clone
 `https://github.com/tabnas/parser`, `https://github.com/tabnas/json` and
 `https://github.com/tabnas/jsonic` next to this repository and point at
 them:

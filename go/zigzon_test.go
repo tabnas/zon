@@ -26,8 +26,8 @@ package tabnaszon
 // exception is a host the pinned zig oracle toolchain is not wired for, where
 // it reports a single explicit, platform-named skip.
 //
-// ts/test/zigzon.test.ts runs the identical corpora, so the two runtimes
-// cannot drift.
+// ts/test/zigzon.test.ts and rs/tests/zigzon_test.rs run the identical
+// corpora, so the runtimes cannot drift.
 
 import (
 	"encoding/json"
