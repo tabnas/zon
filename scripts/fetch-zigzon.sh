@@ -18,9 +18,10 @@
 #      the same oracle
 #        -> test/strictness/cases.json
 #
-# Both runtimes run this themselves before grading — `pretest` in ts/ and
-# TestMain in go/ — so the corpora are present wherever the suites run,
-# including CI. Without them the conformance suites FAIL; they never skip.
+# Every runtime runs this itself before grading — `pretest` in ts/,
+# TestMain in go/ and ensure_corpora in rs/tests/zigzon_test.rs — so the
+# corpora are present wherever the suites run, including CI. Without them
+# the conformance suites FAIL; they never skip.
 # This repo never decides what ZON means: every verdict in both corpora comes
 # from the pinned compiler.
 #

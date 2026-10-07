@@ -161,8 +161,8 @@ rebuild-per-parse anti-pattern is many times slower.
 
 ## Relationship to the Go port
 
-The plugin ships in two implementations (this TypeScript one and a Go
-port) built from the same canonical `zon-grammar.jsonic`. The
+The plugin ships in three implementations (this TypeScript one, a Go
+port and a Rust crate) built from the same canonical `zon-grammar.jsonic`. The
 TypeScript version is the reference. For the Go API shape, value types,
 and any accepted differences, see
 [../../go/doc/concepts.md](../../go/doc/concepts.md).

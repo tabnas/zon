@@ -27,8 +27,8 @@ relaxed-JSON grammar (`tabnas-jsonic`, which itself takes `tabnas-json`
 by path), the fixture runner (`tabnas-support`, dev only) and the
 introspection plugin (`tabnas-debug`, dev only) are **path dependencies
 on sibling checkouts** (`../../parser/rs`, `../../jsonic/rs`,
-`../../json/rs`, `../../support/rs`, `../../debug/rs`). None is
-published.
+`../../json/rs`, `../../support/rs`, `../../debug/rs`). They are on
+crates.io, but the committed manifest names them by path alone.
 
 ```bash
 cargo build --all-targets

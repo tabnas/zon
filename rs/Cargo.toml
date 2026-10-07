@@ -15,8 +15,10 @@ path = "src/lib.rs"
 # The engine and the relaxed-JSON grammar this plugin layers on are
 # consumed as SIBLING CHECKOUTS, the standard tabnas development model:
 # clone https://github.com/tabnas/parser, https://github.com/tabnas/json
-# and https://github.com/tabnas/jsonic next to this repo. None is
-# published, so there is no registry version to fall back on. tabnas-json
+# and https://github.com/tabnas/jsonic next to this repo. They are on
+# crates.io, but this committed manifest stays path-only (crates-release.yml
+# rewrites the paths into crates.io requirements when it publishes), so
+# there is no registry version to fall back on. tabnas-json
 # is not named here: tabnas-jsonic installs it, and its checkout is only
 # needed because tabnas-jsonic takes it by path.
 tabnas = { package = "tabnas-parser", path = "../../parser/rs" }

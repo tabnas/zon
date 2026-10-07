@@ -39,6 +39,6 @@ Both of these were staged here and now run from `.github/workflows/`:
   and a lockfile check that exempts only the sibling crates' versions) on
   the MSRV pinned in `rs/Cargo.toml`. It clones `tabnas/parser`,
   `tabnas/json`, `tabnas/jsonic`, `tabnas/support` and `tabnas/debug`
-  beside the checkout, because the crate takes them as path dependencies
-  and none is published.
+  beside the checkout, because the committed manifest takes them as path
+  dependencies, although all of them are on crates.io.
   `make test-rs` is the fast local loop; the script is what CI runs.
