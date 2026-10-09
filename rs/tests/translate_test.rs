@@ -7,8 +7,10 @@
 // `manifest_text()` and `render_text()`. The copies are the only texts a
 // host sees, so they must be the files: this holds the embedded manifest
 // to the repository's, and the render the manifest names, read from the
-// repository, to the embedded one. Change the file at the root and copy
-// it into `rs/translate/`; this fails until both are the same.
+// repository, to the embedded one, as it would an embed the manifest
+// named. Change the file at the root and run `npm run embed` in `ts/`,
+// which copies it into `rs/translate/`; this fails until both are the
+// same.
 
 mod common;
 
@@ -49,6 +51,34 @@ fn the_render_the_manifest_names_is_the_one_the_crate_embeds() {
         tabnas_zon::render_text(),
         "translate.render names {path}, and rs/translate/render.alc, which render_text() \
          embeds, is another text: copy the render into rs/translate"
+    );
+}
+
+/// An embed takes a plain tree into a format's own schema. ZON's events
+/// carry a plain tree, so its manifest names none and the crate carries
+/// none; a manifest that named one would be held to its file here, as the
+/// render is above.
+#[test]
+fn the_embed_the_manifest_names_is_the_one_the_crate_embeds() {
+    let translate = translate();
+    let parts = tabnas_zon::translate().expect("ZON carries translation parts");
+    let Some(path) = translate.get("embed").and_then(Value::as_str) else {
+        assert_eq!(
+            parts.embed, None,
+            "the manifest names no embed, and the crate carries one"
+        );
+        return;
+    };
+    let on_disk = fs::read_to_string(common::repo_root().join(path))
+        .unwrap_or_else(|e| panic!("translate.embed names {path}, which cannot be read: {e}"));
+    let embed = parts
+        .embed
+        .unwrap_or_else(|| panic!("translate.embed names {path}, and the crate carries no embed"));
+    assert_eq!(embed.entry, "zon-embed");
+    assert_eq!(
+        embed.source,
+        Some(on_disk.as_str()),
+        "translate.embed names {path}, and the crate embeds another text: run npm run embed in ts"
     );
 }
 

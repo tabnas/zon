@@ -44,6 +44,7 @@
   "translate": {
     "reads": "tree",
     "writes": "tree",
+    "root": "any",
     "render": "alchemy/render.alc",
     "loss": [
       "Comments are not kept.",
@@ -51,9 +52,9 @@
       "Strings are written double-quoted with Zig's escapes, never as multiline string literals.",
       "A character literal and an enum literal are written as the value the reader resolved them to, so neither reads back as a literal.",
       "An empty struct is written .{}, which ZON reads as an empty tuple, so an empty object reads back as an empty array.",
-      "An object whose first member is $big, the reader's form of an integer no double holds exactly, is written as the integer its digits spell, and may hold no other member.",
-      "ZON has no field name for the empty string, so an object with that key is refused.",
-      "A field name holding U+0000 is written with an escape ZON does not read in an identifier, since the render cannot test a name for it."
+      "An object whose only member is $big and holds an integer's digits, the reader's form of an integer no double holds exactly, is written as that integer, so it reads back as a number when a double holds the integer; any other object with a $big member is written as a struct.",
+      "ZON has no field name for the empty string, so the empty key is written as the field $empty, in the style of the reader's $big, and reads back as the key $empty.",
+      "ZON reads no U+0000 in a field name, so a field name holding one is written with U+FFFD in place of each U+0000, and reads back so."
     ]
   }
 }

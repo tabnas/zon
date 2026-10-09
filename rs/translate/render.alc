@@ -8,29 +8,39 @@
 ; an array a tuple literal, `.{ value, ... }`, and an empty container of
 ; either kind `.{}`, which ZON reads as an empty tuple, so an empty object
 ; reads back as an empty array. Every field name is written in the quoted
-; identifier form, `.@"name"`, because alchemy cannot test whether a name
-; is a bare identifier. ZON has no field name for the empty string
-; (`.@""` is not an identifier), and an object with that key fails; a
-; name holding U+0000, which ZON refuses in an identifier too, is written
-; with the escape `\x00` all the same, since alchemy cannot test a name
-; for one character. A string is double-quoted with Zig's escapes:
-; `quoted` gives the JSON form, and the escapes Zig lacks are rewritten,
-; `\u00XX` to the byte escape `\xXX`, or to the two bytes `\xc2\xXX` for
-; U+0080 to U+009F, since `\x` writes a byte and the string is UTF-8;
-; `\b` to `\x08`; `\f` to `\x0c`. A number is its lexeme, or as the JSON
-; renderer writes it when it has none; every JSON number is a Zig
-; literal but `-0`, which ZON refuses as an ambiguous negative zero and
-; is written `-0.0`; a non-finite one is `inf`, `-inf` or `nan`. The
-; form is readable, as `zig fmt` writes it: one value per line, each
-; ending in a comma, two spaces of indentation per level of nesting, and
-; a container closed on its own line.
+; identifier form, `.@"name"`, whether or not it is a bare identifier. A
+; string is double-quoted with Zig's escapes: `quoted` gives the JSON
+; form, and the escapes Zig lacks are rewritten, `\u00XX` to the byte
+; escape `\xXX`, or to the two bytes `\xc2\xXX` for U+0080 to U+009F,
+; since `\x` writes a byte and the string is UTF-8; `\b` to `\x08`; `\f`
+; to `\x0c`; `\ufffe` and `\uffff` to `\u{fffe}` and `\u{ffff}`. A number
+; is its lexeme, or as the JSON renderer writes it when it has none; every
+; JSON number is a Zig literal but `-0`, which ZON refuses as an ambiguous
+; negative zero and is written `-0.0`; a non-finite one is `inf`, `-inf`
+; or `nan`. The form is readable, as `zig fmt` writes it: one value per
+; line, each ending in a comma, two spaces of indentation per level of
+; nesting, and a container closed on its own line.
+;
+; Two field names have no identifier in ZON, and each is written by a
+; convention instead. The empty name (`.@""` is not an identifier) is
+; written as the field `$empty`, a sentinel in the style of the reader's
+; own `$big`, and reads back as the key `$empty`. A name holding U+0000,
+; which ZON reads in no identifier, is written with U+FFFD in place of
+; each U+0000 (`chars-within` tells such a name), and reads back so. An
+; object holding a name both ways, the empty one and `$empty`, say, is
+; written with that field twice, which ZON refuses: the render keeps one
+; marker per container, not the names it has written.
 ;
 ; The reader has no big integer value: an integer literal no double holds
-; exactly is built as the object `{"$big": "<digits>"}`. An object whose
-; first member is `$big` is therefore written as that member's text, as
-; it is (alchemy cannot test it for digits, so only an empty one fails),
-; and may hold no other member: a second one fails, after the digits have
-; been written.
+; exactly is built as the object `{"$big": "<digits>"}`, the digits after
+; a minus sign when it is negative. So an object whose only member is
+; `$big`, holding such digits, is written as the integer they spell. The
+; digits are held until the object ends, and an object with a second
+; member is written as the struct it is, `$big` its first field; so is
+; one whose `$big` holds anything else. Digits are a string of the
+; characters `0` to `9` and `-`, at least one a digit, which
+; `chars-within` tests; it cannot test their order, so a string such as
+; `1-2` is taken for digits too.
 ;
 ; The events are a tree's: a struct holds each field once. A walked value
 ; is one by construction; a host that streams a parse must refuse a
@@ -44,10 +54,10 @@
 ; `:object` for a struct waiting for a field name, `:member` for one
 ; whose field name is written and waits for the value, and `:array` for
 ; a tuple waiting for an item; `:big-key` for an object whose first
-; member is `$big` and waits for the digits, and `:big-done` once they
-; are written. Once the root value is written the state is
-; `[:root-done]`, and nothing may follow it. Events no tree has fail
-; with INPUT_INVALID, saying so.
+; member is `$big` and waits for its value, and `[:big digits]` for one
+; holding the digits, which its end writes as the integer. Once the root
+; value is written the state is `[:root-done]`, and nothing may follow
+; it. Events no tree has fail with PROTOCOL_ORDER_ERROR, saying so.
 
 def zon-indent [s]
   repeat (count s) "  "
@@ -70,29 +80,31 @@ def zon-done [s]
     case _
       match (zon-top s)
         case :member (zon-mark :object s)
+        case :big-key (zon-mark :object s)
         case _ s
 
 def zon-key-due [s]
-  fail "the events hold a value where a field name is due, which a tree's never do"
+  fail :protocol-order "the events hold a value where a field name is due, which a tree's never do"
 
 ; The state a value may begin in: anywhere but a struct waiting for a
-; field name, and never as the digits of a big integer.
+; field name.
 def zon-value [s]
   match (zon-top s)
     case :object-open (zon-key-due s)
     case :object (zon-key-due s)
-    case :big-done (zon-key-due s)
-    case :big-key (fail "the $big member holds a container, where the reader's big integer holds its digits as a string")
+    case [:big _] (zon-key-due s)
     case _ s
 
 ; What comes before a value whose parent is the top of s: nothing at the
-; root or after a field name's ` = `; the tuple's opening and the item's
-; indentation for the first item of a held tuple; the indentation alone
-; for a later item.
+; root or after a field name's ` = `; the struct's opening and its `$big`
+; field for the value of a `$big` that is not the reader's digits; the
+; tuple's opening and the item's indentation for the first item of a held
+; tuple; the indentation alone for a later item.
 def zon-lead [s]
   match (zon-top s)
     case :none ""
     case :member ""
+    case :big-key (concat ".{\n" (zon-indent s) (zon-key "$big") " = ")
     case :array-open (concat ".{\n" (zon-indent s))
     case :array (zon-indent s)
     case _ (zon-key-due s)
@@ -110,21 +122,33 @@ def zon-opened [s]
     case :array-open (zon-mark :array s)
     case _ s
 
-; A string in Zig's double-quoted form. `quoted` gives the JSON form,
-; whose `\\` is protected by a sentinel no quoted string holds (U+0001
-; is itself escaped) while the escapes Zig lacks are rewritten: the two
-; C1 ranges first, so that `\u008X` and `\u009X` become the two UTF-8
-; bytes `\xc2\x8X` and `\xc2\x9X`, then every other `\u00XX` to the byte
-; `\xXX`, `\b` to `\x08` and `\f` to `\x0c`.
+; A string in Zig's double-quoted form: `quoted`'s JSON form, protected,
+; with its escapes rewritten.
 def zon-string [text]
+  zon-escapes (zon-protect (quoted text))
+
+; The JSON form with each `\\`, an escaped backslash, replaced by a
+; sentinel no quoted string holds (`quoted` escapes U+0001), so that
+; every `\` the rewrites meet begins an escape: the backslash and letters
+; `u0000` that follow an escaped backslash are never read as `\u0000`.
+def zon-protect [json-form]
+  replace-text "\\\\" "\u0001" json-form
+
+; The escapes Zig lacks, rewritten in a protected JSON form: the two C1
+; ranges first, so that `\u008X` and `\u009X` become the two UTF-8 bytes
+; `\xc2\x8X` and `\xc2\x9X`, then every other `\u00XX` to the byte `\xXX`,
+; `\b` to `\x08`, `\f` to `\x0c`, the two noncharacters `\ufffe` and
+; `\uffff` to Zig's `\u{fffe}` and `\u{ffff}`, and the sentinel back to
+; `\\`.
+def zon-escapes [protected]
   replace-text "\u0001" "\\\\"
-    replace-text "\\f" "\\x0c"
-      replace-text "\\b" "\\x08"
-        replace-text "\\u00" "\\x"
-          replace-text "\\u009" "\\xc2\\x9"
-            replace-text "\\u008" "\\xc2\\x8"
-              replace-text "\\\\" "\u0001"
-                quoted text
+    replace-text "\\uffff" "\\u{ffff}"
+      replace-text "\\ufffe" "\\u{fffe}"
+        replace-text "\\f" "\\x0c"
+          replace-text "\\b" "\\x08"
+            replace-text "\\u00" "\\x"
+              replace-text "\\u009" "\\xc2\\x9"
+                replace-text "\\u008" "\\xc2\\x8" protected
 
 ; A finite number by its text. ZON refuses `-0`, the one JSON lexeme that
 ; is not a Zig literal, as an ambiguous negative zero; `-0.0` is the
@@ -151,14 +175,53 @@ def zon-scalar [value]
     case :number (zon-number value)
     case _ (zon-string value)
 
-; A field name, in the quoted identifier form.
+; The characters a field name may hold in ZON: every one but U+0000.
+def zon-name-chars [[1 1114111]]
+
+; A field name, in the quoted identifier form: the empty name, which ZON
+; has no identifier for, as the field `$empty`, and a name holding
+; U+0000, which ZON reads in no identifier, with U+FFFD in its place.
 def zon-key [name]
   match (length name)
-    case 0 (fail "ZON has no field name for the empty string, so a struct with that field cannot be written")
-    case _ (concat ".@" (zon-string name))
+    case 0 ".@\"$empty\""
+    case _
+      match (chars-within zon-name-chars name)
+        case true (concat ".@" (zon-string name))
+        case false (concat ".@" (zon-name-without-nul name))
+
+; A field name holding U+0000 in Zig's double-quoted form, U+FFFD in
+; place of each U+0000. In the protected JSON form every `\` that is left
+; begins an escape, so each `\u0000` there is a U+0000's own, never a
+; backslash's escape followed by the letters `u0000`, which the sentinel
+; stands for.
+def zon-name-without-nul [name]
+  zon-escapes
+    replace-text "\\u0000" "\ufffd"
+      zon-protect (quoted name)
+
+; The characters of the reader's big integer digits, `-` and `0` to `9`,
+; and the minus sign alone.
+def zon-digit-chars [[45 45] [48 57]]
+
+def zon-minus-chars [[45 45]]
+
+; Whether a value is the reader's digits of a big integer: a string of
+; the characters in `zon-digit-chars`, not all of them minus signs.
+def zon-big-digits [value]
+  match (kind value)
+    case :string
+      match (length value)
+        case 0 false
+        case _
+          match (chars-within zon-minus-chars value)
+            case true false
+            case false (chars-within zon-digit-chars value)
+    case _ false
 
 ; A field name, written where the struct's fields go: the first opens the
-; held struct, unless it is `$big`, which makes the object a big integer.
+; held struct, unless it is `$big`, whose value is waited for; a name
+; after held digits opens the struct with `$big` first, its digits a
+; string.
 def zon-member [name s]
   match (zon-top s)
     case :object-open
@@ -167,22 +230,21 @@ def zon-member [name s]
         case _ (transition (zon-mark :member s) [".{\n" (zon-indent s) (zon-key name) " = "])
     case :object
       transition (zon-mark :member s) [(zon-indent s) (zon-key name) " = "]
-    case :big-done
-      fail "the object holds a member after $big, where the reader's big integer holds nothing but its digits"
-    case _ (fail "the events hold a field name where a value is due, which a tree's never do")
+    case [:big digits]
+      transition (zon-mark :member s) [".{\n" (zon-indent s) (zon-key "$big") " = " (zon-string digits) ",\n" (zon-indent s) (zon-key name) " = "]
+    case _ (fail :protocol-order "the events hold a field name where a value is due, which a tree's never do")
 
-; The digits of a big integer, written as the object's value.
+; The value of a `$big` that is an object's first member: the reader's
+; digits are held until the object ends or another member begins; any
+; other value is written as the struct's first field.
 def zon-big [value s]
-  match (kind value)
-    case :string
-      match (length value)
-        case 0 (fail "the $big member is empty, where the reader's big integer holds its digits")
-        case _ (transition (zon-mark :big-done s) [value (zon-end (pop s))])
-    case _ (fail "the $big member holds a value that is not a string, where the reader's big integer holds its digits as one")
+  match (zon-big-digits value)
+    case true (transition (zon-mark [:big value] s) [])
+    case false (transition (zon-done s) [(zon-lead s) (zon-scalar value) (zon-end s)])
 
 def zon-step [s event]
   match (zon-top s)
-    case :root-done (fail "the events hold more after the root value, which a tree's never do")
+    case :root-done (fail :protocol-order "the events hold more after the root value, which a tree's never do")
     case _ (zon-event s event)
 
 def zon-event [s event]
@@ -203,14 +265,14 @@ def zon-event [s event]
           transition (zon-done (pop s)) [".{}" (zon-end (pop s))]
         case :object
           transition (zon-done (pop s)) [(zon-indent (pop s)) "}" (zon-end (pop s))]
-        case :big-done
-          transition (zon-done (pop s)) []
+        case [:big digits]
+          transition (zon-done (pop s)) [digits (zon-end (pop s))]
         case :member
-          fail "the events end a struct after a field name and before its value, which a tree's never do"
+          fail :protocol-order "the events end a struct after a field name and before its value, which a tree's never do"
         case :big-key
-          fail "the events end a struct after a field name and before its value, which a tree's never do"
+          fail :protocol-order "the events end a struct after a field name and before its value, which a tree's never do"
         case _
-          fail "the events end a struct that is not open, which a tree's never do"
+          fail :protocol-order "the events end a struct that is not open, which a tree's never do"
     case array-end
       match (zon-top s)
         case :array-open
@@ -218,13 +280,13 @@ def zon-event [s event]
         case :array
           transition (zon-done (pop s)) [(zon-indent (pop s)) "}" (zon-end (pop s))]
         case _
-          fail "the events end a tuple that is not open, which a tree's never do"
+          fail :protocol-order "the events end a tuple that is not open, which a tree's never do"
 
 def zon-finish [s]
   match (zon-top s)
     case :root-done []
-    case :none (fail "the events hold no value, where a tree's hold one")
-    case _ (fail "the events ended inside a container, which a tree's never do")
+    case :none (fail :protocol-order "the events hold no value, where a tree's hold one")
+    case _ (fail :protocol-order "the events ended inside a container, which a tree's never do")
 
 ; The render: the tree's events in, the document's text out.
 def zon-render [input]
