@@ -17,7 +17,7 @@ and this file only covers what is specific to this crate.
 | `tests/perf_test.rs` | `parse()` reuses its instance; reuse beats rebuild-per-parse |
 | `tests/zon_test.rs` | in-language behaviour: the `go/zon_test.go` cases, the values with no JSON spelling, error codes and messages, the API, the embedded grammar, threads |
 | `tests/version_test.rs` | Cargo.toml == `VERSION` == ts/package.json |
-| `tests/translate_test.rs` | the embedded `translate/manifest.json` is `../tabnas.plugin.json`, the embedded `translate/render.alc` is the file its `translate.render` names, the embed it names is the one `translate()` carries (none, for ZON), the shapes and the loss lines are well formed, and every definition in the render is named `zon-` |
+| `tests/translate_test.rs` | the embedded `translate/manifest.json` is `../tabnas.plugin.json`, the embedded `translate/render.alc` is the file its `translate.render` names, the embed it names is the one `translate()` carries (none, for ZON), the shapes and the loss lines are well formed, every definition in the render is named `zon-`, and the documents the render writes for the reader's big integer read back as one, which no shared fixture can spell |
 | `tests/common/mod.rs` | shared helpers: repo root, spec dir, value and failure conversion, the `opts` reader |
 | `README.md` | the crate front page, prose-gated; its `rust` fences are doctests of this crate (see below) |
 | `translate/` | the crate's copies of `../tabnas.plugin.json` and `../alchemy/render.alc`, which `include_str!` embeds; a packaged crate holds nothing outside `rs/`, so change the root file and run `npm run embed` in `ts/`, which copies it here |

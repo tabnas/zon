@@ -134,3 +134,27 @@ fn the_render_is_a_library_named_for_zon() {
         assert!(name.starts_with("zon-"), "{name} is not named for ZON");
     }
 }
+
+/// The documents the render writes for the reader's own big integer, an
+/// object whose only member is `$big` holding `-123456789012345678901234567890`,
+/// at the root and nested, as alchemy runs the render. Each is that
+/// integer, which the reader reads back as its big integer: here the
+/// `{ "$big": digits }` object, a bigint in TypeScript and a *big.Int in
+/// Go. No shared fixture can spell that value (see test/AGENTS.md), so
+/// each runtime's translation test reads it; `test/spec/render.tsv` pins
+/// the rest of what the render writes for `$big`.
+#[test]
+fn the_renders_big_integer_reads_back_as_the_readers() {
+    let digits = "-123456789012345678901234567890";
+    let root = tabnas_zon::parse("-123456789012345678901234567890\n")
+        .expect("the document the render writes for a big integer parses");
+    assert_eq!(common::json(&root), format!(r#"{{"$big":"{digits}"}}"#));
+    let nested = tabnas_zon::parse(
+        ".{\n  .@\"n\" = -123456789012345678901234567890,\n  .@\"a\" = .{\n    -123456789012345678901234567890,\n  },\n}\n",
+    )
+    .expect("the document the render writes for nested big integers parses");
+    assert_eq!(
+        common::json(&nested),
+        format!(r#"{{"n":{{"$big":"{digits}"}},"a":[{{"$big":"{digits}"}}]}}"#)
+    );
+}

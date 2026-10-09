@@ -23,3 +23,19 @@ input	expected	opts
 .{\n  .@"$$" = 1,\n  .@"$$$" = 2,\n  .@"$$big" = 3,\n  .@"$$$big" = 4,\n  .@"x$" = 5,\n}\n	{"$$":1,"$$$":2,"$$big":3,"$$$big":4,"x$":5}
 # {"": {"": 1, "\u0000": [{"$empty": 2}]}}
 .{\n  .@"$empty" = .{\n    .@"$empty" = 1,\n    .@"$json:\\"\\\\u0000\\"" = .{\n      .{\n        .@"$$empty" = 2,\n      },\n    },\n  },\n}\n	{"$empty":{"$empty":1,"$json:\"\\u0000\"":[{"$$empty":2}]}}
+# An object whose only member is $big, holding an integer as the reader
+# spells one, is written as that integer; one whose $big holds any other
+# string is written as a struct, its field $$big, never as an integer
+# ZON refuses. A big integer itself, which the readers hold as a bigint,
+# a *big.Int and {"$big": digits}, no fixture can spell: each runtime's
+# translation test reads the render's.
+# {"$big": "1-2"}
+.{\n  .@"$$big" = "1-2",\n}\n	{"$$big":"1-2"}
+# {"$big": "01"}
+.{\n  .@"$$big" = "01",\n}\n	{"$$big":"01"}
+# {"$big": "-0"}
+.{\n  .@"$$big" = "-0",\n}\n	{"$$big":"-0"}
+# {"$big": "-"}
+.{\n  .@"$$big" = "-",\n}\n	{"$$big":"-"}
+# [{"$big": "-5"}, {"$big": "0"}, {"$big": "1-2", "x": 1}]
+.{\n  -5,\n  0,\n  .{\n    .@"$$big" = "1-2",\n    .@"x" = 1,\n  },\n}\n	[-5,0,{"$$big":"1-2","x":1}]

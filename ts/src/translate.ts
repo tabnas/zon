@@ -72,7 +72,7 @@ const TRANSLATION: TranslationParts = Object.freeze({
       "An empty struct is written .{}, which ZON reads as an empty tuple, so an empty object reads back as an empty array.",
       "A field name is written by a convention that keeps every name apart: the empty name, which ZON has no field name for, as $empty; a name holding U+0000, which no ZON field name holds, as $json: followed by the name's double-quoted JSON form, as alchemy's quoted writes it; a name that begins with $ with one more $ in front, so $empty, $big and $json:x are written $$empty, $$big and $$json:x; and any other name as it is.",
       "Each field name reads back by the reverse of that convention: $empty is the empty name; $json: followed by a text is the string the text spells as a double-quoted JSON string, as alchemy's unquoted reads it; $$ followed by a rest is $ followed by the rest; and any other name is as it is.",
-      "An object whose only member is $big and holds an integer's digits, the reader's form of an integer no double holds exactly, is written as that integer, so it reads back as a number when a double holds the integer; any other object with a $big member is written as a struct, whose $big field the convention for names writes as $$big."
+      "An object whose only member is $big and holds an integer's digits as the reader writes them (a string of the characters 0 to 9 and - that alchemy's number reads, other than -0), the reader's form of an integer no double holds exactly, is written as that integer, so it reads back as a number when a double holds the integer; any other object with a $big member is written as a struct, whose $big field the convention for names writes as $$big, so one whose $big holds 1-2, 01, -0 or - reads back as the object it was."
     ]
   }
 }
@@ -119,14 +119,16 @@ const TRANSLATION: TranslationParts = Object.freeze({
 ; The reader has no big integer value: an integer literal no double holds
 ; exactly is built as the object \`{"$big": "<digits>"}\`, the digits after
 ; a minus sign when it is negative. So an object whose only member is
-; \`$big\`, holding such digits, is written as the integer they spell. That
-; is decided on the name as it is, before the convention above escapes
-; it. The digits are held until the object ends, and an object with a
-; second member is written as the struct it is, its first field \`$big\`,
-; which the convention writes \`$$big\`; so is one whose \`$big\` holds
-; anything else. Digits are a string of the characters \`0\` to \`9\` and
-; \`-\`, at least one a digit, which \`chars-within\` tests; it cannot test
-; their order, so a string such as \`1-2\` is taken for digits too.
+; \`$big\`, holding an integer as the reader spells one, is written as that
+; integer: a string of the characters \`0\` to \`9\` and \`-\` alone
+; (\`chars-within\`) that \`number\` reads (\`is-number\`), so a minus sign at
+; most and first, and no leading zero, but not \`-0\`, which ZON refuses as
+; an ambiguous negative zero. That is decided on the name as it is, before
+; the convention above escapes it. The digits are held until the object
+; ends, and an object with a second member is written as the struct it
+; is, its first field \`$big\`, which the convention writes \`$$big\`; so is
+; one whose \`$big\` holds anything else, such as the strings \`1-2\`, \`01\`,
+; \`-0\` and \`-\`, which are written as strings.
 ;
 ; The events are a tree's: a struct holds each field once. A walked value
 ; is one by construction; a host that streams a parse must refuse a
@@ -289,23 +291,27 @@ def zon-dollar [json-form]
   replace-text "\\u0002" ""
     replace-text "\\u0002\\"$" "\\"$$" (string-join "" ["\\u0002" json-form])
 
-; The characters of the reader's big integer digits, \`-\` and \`0\` to \`9\`,
-; and the minus sign alone.
+; The characters of the reader's big integer digits: \`-\` and \`0\` to \`9\`.
 def zon-digit-chars [[45 45] [48 57]]
 
-def zon-minus-chars [[45 45]]
-
-; Whether a value is the reader's digits of a big integer: a string of
-; the characters in \`zon-digit-chars\`, not all of them minus signs.
+; Whether a value is an integer as the reader writes a big integer's
+; digits: a string, not empty, of the characters in \`zon-digit-chars\`
+; alone, which \`number\` reads (\`is-number\`), so a minus sign at most and
+; first, then \`0\` or digits that do not begin with \`0\`; and not \`-0\`,
+; which ZON refuses as an ambiguous negative zero. Each is a ZON integer
+; literal as it is.
 def zon-big-digits [value]
   match (kind value)
     case :string
       match (length value)
         case 0 false
         case _
-          match (chars-within zon-minus-chars value)
-            case true false
-            case false (chars-within zon-digit-chars value)
+          match (chars-within zon-digit-chars value)
+            case false false
+            case true
+              match value
+                case "-0" false
+                case _ (is-number value)
     case _ false
 
 ; A field name, written where the struct's fields go: the first opens the
