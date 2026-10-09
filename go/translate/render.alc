@@ -21,26 +21,33 @@
 ; line, each ending in a comma, two spaces of indentation per level of
 ; nesting, and a container closed on its own line.
 ;
-; Two field names have no identifier in ZON, and each is written by a
-; convention instead. The empty name (`.@""` is not an identifier) is
-; written as the field `$empty`, a sentinel in the style of the reader's
-; own `$big`, and reads back as the key `$empty`. A name holding U+0000,
-; which ZON reads in no identifier, is written with U+FFFD in place of
-; each U+0000 (`chars-within` tells such a name), and reads back so. An
-; object holding a name both ways, the empty one and `$empty`, say, is
-; written with that field twice, which ZON refuses: the render keeps one
-; marker per container, not the names it has written.
+; A field name is written by a convention that keeps every name apart,
+; since ZON has no identifier for some names, and the reader's own big
+; integer takes the name `$big`. The empty name, which ZON has no
+; identifier for (`.@""` is not one), is written as `$empty`. A name
+; holding a character no ZON field name carries is written as `$json:`
+; followed by the name's `quoted` form, which holds no such character:
+; Zig's `@"..."` identifiers refuse a null byte and the empty name and
+; nothing else, so that character is U+0000 (`chars-within` tells such a
+; name). A name that begins with `$` is written with one more `$` in
+; front: `$empty` as `$$empty`, `$big` as `$$big`, `$json:x` as
+; `$$json:x`. Any other name is written as it is. The reverse, which
+; reads each field name back: `$empty` is the empty name; `$json:` and a
+; text is the name `unquoted` reads from the text; `$$` and a rest is
+; `$` and the rest; any other name is as it is. No two names are written
+; as one, so no struct the render writes holds a field twice.
 ;
 ; The reader has no big integer value: an integer literal no double holds
 ; exactly is built as the object `{"$big": "<digits>"}`, the digits after
 ; a minus sign when it is negative. So an object whose only member is
-; `$big`, holding such digits, is written as the integer they spell. The
-; digits are held until the object ends, and an object with a second
-; member is written as the struct it is, `$big` its first field; so is
-; one whose `$big` holds anything else. Digits are a string of the
-; characters `0` to `9` and `-`, at least one a digit, which
-; `chars-within` tests; it cannot test their order, so a string such as
-; `1-2` is taken for digits too.
+; `$big`, holding such digits, is written as the integer they spell. That
+; is decided on the name as it is, before the convention above escapes
+; it. The digits are held until the object ends, and an object with a
+; second member is written as the struct it is, its first field `$big`,
+; which the convention writes `$$big`; so is one whose `$big` holds
+; anything else. Digits are a string of the characters `0` to `9` and
+; `-`, at least one a digit, which `chars-within` tests; it cannot test
+; their order, so a string such as `1-2` is taken for digits too.
 ;
 ; The events are a tree's: a struct holds each field once. A walked value
 ; is one by construction; a host that streams a parse must refuse a
@@ -129,8 +136,8 @@ def zon-string [text]
 
 ; The JSON form with each `\\`, an escaped backslash, replaced by a
 ; sentinel no quoted string holds (`quoted` escapes U+0001), so that
-; every `\` the rewrites meet begins an escape: the backslash and letters
-; `u0000` that follow an escaped backslash are never read as `\u0000`.
+; every `\` the rewrites meet begins an escape: an escaped backslash
+; followed by the letters `u0085`, say, is never read as `\u0085`.
 def zon-protect [json-form]
   replace-text "\\\\" "\u0001" json-form
 
@@ -178,26 +185,30 @@ def zon-scalar [value]
 ; The characters a field name may hold in ZON: every one but U+0000.
 def zon-name-chars [[1 1114111]]
 
-; A field name, in the quoted identifier form: the empty name, which ZON
-; has no identifier for, as the field `$empty`, and a name holding
-; U+0000, which ZON reads in no identifier, with U+FFFD in its place.
+; A field name, in the quoted identifier form.
 def zon-key [name]
+  concat ".@" (zon-field name)
+
+; The field a name is written as, in Zig's double-quoted form, by the
+; convention above: the empty name as `$empty`; a name holding U+0000 as
+; `$json:` and its quoted form; a name that begins with `$` with one more
+; `$` in front; any other name as it is.
+def zon-field [name]
   match (length name)
-    case 0 ".@\"$empty\""
+    case 0 (zon-string "$empty")
     case _
       match (chars-within zon-name-chars name)
-        case true (concat ".@" (zon-string name))
-        case false (concat ".@" (zon-name-without-nul name))
+        case true (zon-escapes (zon-protect (zon-dollar (quoted name))))
+        case false (zon-string (string-join "" ["$json:" (quoted name)]))
 
-; A field name holding U+0000 in Zig's double-quoted form, U+FFFD in
-; place of each U+0000. In the protected JSON form every `\` that is left
-; begins an escape, so each `\u0000` there is a U+0000's own, never a
-; backslash's escape followed by the letters `u0000`, which the sentinel
-; stands for.
-def zon-name-without-nul [name]
-  zon-escapes
-    replace-text "\\u0000" "\ufffd"
-      zon-protect (quoted name)
+; A name's JSON form with one more `$` after the opening quote when the
+; name begins with `$`. The sentinel U+0002, which a quoted string never
+; holds raw (`quoted` escapes it), marks where the form begins, so the
+; `"$` that follows it is the opening quote and the name's first
+; character, never an escaped quote and a `$` inside the name.
+def zon-dollar [json-form]
+  replace-text "\u0002" ""
+    replace-text "\u0002\"$" "\"$$" (string-join "" ["\u0002" json-form])
 
 ; The characters of the reader's big integer digits, `-` and `0` to `9`,
 ; and the minus sign alone.

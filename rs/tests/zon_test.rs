@@ -537,6 +537,7 @@ fn the_fixture_census_is_what_the_other_runtimes_run() {
             "nesting.tsv",
             "numbers.tsv",
             "realworld.tsv",
+            "render.tsv",
             "scalars.tsv",
             "strict.tsv",
             "strings.tsv",

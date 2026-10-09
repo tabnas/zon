@@ -52,9 +52,9 @@
       "Strings are written double-quoted with Zig's escapes, never as multiline string literals.",
       "A character literal and an enum literal are written as the value the reader resolved them to, so neither reads back as a literal.",
       "An empty struct is written .{}, which ZON reads as an empty tuple, so an empty object reads back as an empty array.",
-      "An object whose only member is $big and holds an integer's digits, the reader's form of an integer no double holds exactly, is written as that integer, so it reads back as a number when a double holds the integer; any other object with a $big member is written as a struct.",
-      "ZON has no field name for the empty string, so the empty key is written as the field $empty, in the style of the reader's $big, and reads back as the key $empty.",
-      "ZON reads no U+0000 in a field name, so a field name holding one is written with U+FFFD in place of each U+0000, and reads back so."
+      "A field name is written by a convention that keeps every name apart: the empty name, which ZON has no field name for, as $empty; a name holding U+0000, which no ZON field name holds, as $json: followed by the name's double-quoted JSON form, as alchemy's quoted writes it; a name that begins with $ with one more $ in front, so $empty, $big and $json:x are written $$empty, $$big and $$json:x; and any other name as it is.",
+      "Each field name reads back by the reverse of that convention: $empty is the empty name; $json: followed by a text is the string the text spells as a double-quoted JSON string, as alchemy's unquoted reads it; $$ followed by a rest is $ followed by the rest; and any other name is as it is.",
+      "An object whose only member is $big and holds an integer's digits, the reader's form of an integer no double holds exactly, is written as that integer, so it reads back as a number when a double holds the integer; any other object with a $big member is written as a struct, whose $big field the convention for names writes as $$big."
     ]
   }
 }
