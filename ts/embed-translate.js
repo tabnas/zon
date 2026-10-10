@@ -38,6 +38,7 @@ function part (kind) {
 }
 
 const lift = part('lift')
+const embed = part('embed')
 const render = part('render')
 
 function tsPart (value) {
@@ -56,6 +57,7 @@ function tsString (value) {
 
 const fields = [`manifest: ${tsString(manifestText)}`]
 if (lift) fields.push(`lift: ${tsPart(lift)}`)
+if (embed) fields.push(`embed: ${tsPart(embed)}`)
 if (render) fields.push(`render: ${tsPart(render)}`)
 
 const generated = `/* Copyright (c) 2021-2026 Richard Rodger, MIT License */
@@ -71,6 +73,7 @@ type TranslationPart = Readonly<{
 type TranslationParts = Readonly<{
   manifest: string
   lift?: TranslationPart
+  embed?: TranslationPart
   render?: TranslationPart
 }>
 
@@ -98,7 +101,7 @@ for (const runtime of ['go', 'rs']) {
   const target = path.join(root, runtime, 'translate')
   fs.mkdirSync(target, { recursive: true })
   fs.writeFileSync(path.join(target, 'manifest.json'), manifestText)
-  for (const value of [lift, render]) {
+  for (const value of [lift, embed, render]) {
     if (value?.source) fs.writeFileSync(path.join(target, value.file), value.source)
   }
 }
