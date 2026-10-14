@@ -67,6 +67,12 @@
 ; holding the digits, which its end writes as the integer. Once the root
 ; value is written the state is `[:root-done]`, and nothing may follow
 ; it. Events no tree has fail with PROTOCOL_ORDER_ERROR, saying so.
+;
+; Each value directly inside the root struct or tuple is a record of the
+; text: the step that ends one answers alchemy's `:record-end` after its
+; outputs, and so does the step that opens the root, so a host's writer
+; holds a record until its end, and a run that fails part way leaves
+; whole records behind.
 
 def zon-indent [s]
   repeat (count s) "  "
@@ -248,8 +254,16 @@ def zon-member [name s]
     case :object
       transition (zon-mark :member s) [(zon-indent s) (zon-key name) " = "]
     case [:big digits]
-      transition (zon-mark :member s) [".{\n" (zon-indent s) (zon-key "$big") " = " (zon-string digits) ",\n" (zon-indent s) (zon-key name) " = "]
+      transition (zon-mark :member s) (zon-big-field digits name s)
     case _ (fail :protocol-order "the events hold a field name where a value is due, which a tree's never do")
+
+; The held digits as the struct's `$big` field, a string, then the field
+; name after it. In the root struct the `$big` field is a value directly
+; inside the root, so it ends a record before the next field begins.
+def zon-big-field [digits name s]
+  match (count s)
+    case 1 [".{\n" (zon-indent s) (zon-key "$big") " = " (zon-string digits) ",\n" :record-end (zon-indent s) (zon-key name) " = "]
+    case _ [".{\n" (zon-indent s) (zon-key "$big") " = " (zon-string digits) ",\n" (zon-indent s) (zon-key name) " = "]
 
 ; The value of a `$big` that is an object's first member: the reader's
 ; digits are held until the object ends or another member begins; any
@@ -257,7 +271,21 @@ def zon-member [name s]
 def zon-big [value s]
   match (zon-big-digits value)
     case true (transition (zon-mark [:big value] s) [])
-    case false (transition (zon-done s) [(zon-lead s) (zon-scalar value) (zon-end s)])
+    case false (zon-to (zon-done s) [(zon-lead s) (zon-scalar value) (zon-end s)])
+
+; The outputs of a step whose next state is s, with the end of a record
+; after them when s is one level deep: the root opened, or a value
+; directly inside it ended (or the root itself, where the mark is the
+; document's end).
+def zon-ended [s outputs]
+  match (count s)
+    case 1 (push :record-end outputs)
+    case _ outputs
+
+; A step that moves to s, writing outputs, with the end of a record when
+; s is one level deep.
+def zon-to [s outputs]
+  transition s (zon-ended s outputs)
 
 def zon-step [s event]
   match (zon-top s)
@@ -267,23 +295,23 @@ def zon-step [s event]
 def zon-event [s event]
   match event
     case object-start
-      transition (push :object-open (zon-opened (zon-value s))) [(zon-lead s)]
+      zon-to (push :object-open (zon-opened (zon-value s))) [(zon-lead s)]
     case array-start
-      transition (push :array-open (zon-opened (zon-value s))) [(zon-lead s)]
+      zon-to (push :array-open (zon-opened (zon-value s))) [(zon-lead s)]
     case (key name) (zon-member name s)
     case (scalar value)
       match (zon-top s)
         case :big-key (zon-big value s)
         case _
-          transition (zon-done (zon-opened (zon-value s))) [(zon-lead s) (zon-scalar value) (zon-end s)]
+          zon-to (zon-done (zon-opened (zon-value s))) [(zon-lead s) (zon-scalar value) (zon-end s)]
     case object-end
       match (zon-top s)
         case :object-open
-          transition (zon-done (pop s)) [".{}" (zon-end (pop s))]
+          zon-to (zon-done (pop s)) [".{}" (zon-end (pop s))]
         case :object
-          transition (zon-done (pop s)) [(zon-indent (pop s)) "}" (zon-end (pop s))]
+          zon-to (zon-done (pop s)) [(zon-indent (pop s)) "}" (zon-end (pop s))]
         case [:big digits]
-          transition (zon-done (pop s)) [digits (zon-end (pop s))]
+          zon-to (zon-done (pop s)) [digits (zon-end (pop s))]
         case :member
           fail :protocol-order "the events end a struct after a field name and before its value, which a tree's never do"
         case :big-key
@@ -293,9 +321,9 @@ def zon-event [s event]
     case array-end
       match (zon-top s)
         case :array-open
-          transition (zon-done (pop s)) [".{}" (zon-end (pop s))]
+          zon-to (zon-done (pop s)) [".{}" (zon-end (pop s))]
         case :array
-          transition (zon-done (pop s)) [(zon-indent (pop s)) "}" (zon-end (pop s))]
+          zon-to (zon-done (pop s)) [(zon-indent (pop s)) "}" (zon-end (pop s))]
         case _
           fail :protocol-order "the events end a tuple that is not open, which a tree's never do"
 
