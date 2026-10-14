@@ -254,8 +254,16 @@ def zon-member [name s]
     case :object
       transition (zon-mark :member s) [(zon-indent s) (zon-key name) " = "]
     case [:big digits]
-      transition (zon-mark :member s) [".{\n" (zon-indent s) (zon-key "$big") " = " (zon-string digits) ",\n" (zon-indent s) (zon-key name) " = "]
+      transition (zon-mark :member s) (zon-big-field digits name s)
     case _ (fail :protocol-order "the events hold a field name where a value is due, which a tree's never do")
+
+; The held digits as the struct's `$big` field, a string, then the field
+; name after it. In the root struct the `$big` field is a value directly
+; inside the root, so it ends a record before the next field begins.
+def zon-big-field [digits name s]
+  match (count s)
+    case 1 [".{\n" (zon-indent s) (zon-key "$big") " = " (zon-string digits) ",\n" :record-end (zon-indent s) (zon-key name) " = "]
+    case _ [".{\n" (zon-indent s) (zon-key "$big") " = " (zon-string digits) ",\n" (zon-indent s) (zon-key name) " = "]
 
 ; The value of a `$big` that is an object's first member: the reader's
 ; digits are held until the object ends or another member begins; any
