@@ -13,6 +13,7 @@ type TranslationParts = Readonly<{
   lift?: TranslationPart
   embed?: TranslationPart
   render?: TranslationPart
+  transduce?: TranslationPart
 }>
 
 const TRANSLATION: TranslationParts = Object.freeze({
@@ -64,6 +65,7 @@ const TRANSLATION: TranslationParts = Object.freeze({
     "writes": "tree",
     "root": "any",
     "render": "alchemy/render.alc",
+    "transduce": "alchemy/transduce.alc",
     "loss": [
       "Comments are not kept.",
       "Every field name is written in the quoted identifier form, .@\\"name\\", whether or not it is a bare identifier.",
@@ -416,6 +418,34 @@ def zon-finish [s]
 def zon-render [input]
   join ""
     scan-emit [] zon-step zon-finish (events input)
+` }),
+  transduce: Object.freeze({ entry: "zon-transduce", source: `; ZON's transducer part: the document's JSON events from the zon
+; grammar's rule passes (ParserEvents/1), streamed as the parser makes
+; them, so that a host that reads parser events (alchemy-cli's translate
+; and run --grammar, aless) reads a ZON document through this file rather
+; than through transduce's inference over the grammar's rule events.
+;
+; The grammar's rules are named as json's and map onto a tree as json's
+; do, so the part is the library's declarative transducer, transduce-tree,
+; with json's spec keyed by rule name: a map rule's open pass begins an
+; object (a struct literal) and its close pass ends it, a list rule's an
+; array (a tuple); a pair rule's open pass announces the field's name, its
+; first token's value; and a val rule's open pass yields the scalar its
+; first token carries: a number with the lexeme it keeps where JSON spells
+; it so (2.50 is written 2.50, 0x10 by its value), a character or an enum
+; literal as the value the reader resolved it to, a multiline string as
+; its text. Every event is the one the walk of the grammar's value gives,
+; a number's lexeme aside, which alchemy-cli's transduce.tsv runner holds
+; it to; a repeated field is streamed twice, as the document spells it,
+; for a tree-contract or a capture's policy to judge.
+def zon-transduce [input]
+  transduce-tree
+    record
+      entry :map (record (entry :container :object))
+      entry :list (record (entry :container :array))
+      entry :pair (record (entry :key 0))
+      entry :val (record (entry :scalar 0))
+    input
 ` })
 })
 
