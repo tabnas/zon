@@ -446,7 +446,7 @@ def zon-render [input]
 ; Every event is the one the walk of the grammar's value gives, a number's
 ; lexeme aside, which alchemy-cli's transduce.tsv runner holds it to; a
 ; repeated field the grammar refuses before any pass streams it.
-def zon-spec
+def zon-transduce-spec
   record
     entry :map (record (entry :container :object))
     entry :list (record (entry :container :array))
@@ -455,7 +455,7 @@ def zon-spec
 
 ; A token's value as events: the reader's big integer, a record of one
 ; member, as that object; any other as the scalar it is.
-def zon-value [value]
+def zon-transduce-value [value]
   match (kind value)
     case :record
       match (keys value)
@@ -463,22 +463,22 @@ def zon-value [value]
         case _ (fail :unrepresentable "a token's value is a record the stream has no form for")
     case _ [(scalar value)]
 
-def zon-step [state pass]
+def zon-transduce-step [state pass]
   match pass
     case (open rule)
-      match (get (get :name rule) zon-spec)
+      match (get (get :name rule) zon-transduce-spec)
         case missing (transition state [])
         case entry
           match (get :scalar entry)
-            case missing (transduce-open zon-spec state rule)
+            case missing (transduce-open zon-transduce-spec state rule)
             case _
               match (get-path (path 0) (get :tokens rule))
                 case missing (transition state [])
-                case token (transition state (zon-value (get :val token)))
-    case (close rule) (transduce-close zon-spec state rule)
+                case token (transition state (zon-transduce-value (get :val token)))
+    case (close rule) (transduce-close zon-transduce-spec state rule)
 
 def zon-transduce [input]
-  as-events (scan-emit [[] false] zon-step transduce-finish (parser-events input))
+  as-events (scan-emit [[] false] zon-transduce-step transduce-finish (parser-events input))
 ` })
 })
 
