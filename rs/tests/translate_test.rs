@@ -10,7 +10,8 @@
 // repository, to the embedded one, as it would an embed the manifest
 // named. Change the file at the root and run `npm run embed` in `ts/`,
 // which copies it into `rs/translate/`; this fails until both are the
-// same.
+// same. The transducer the manifest names, `alchemy/transduce.alc`, is a
+// file of this repository's, and its copy is held the same way.
 
 mod common;
 
@@ -90,6 +91,39 @@ fn the_structural_interface_names_the_render_entry() {
     let render = parts.render.expect("ZON carries a render");
     assert_eq!(render.entry, "zon-render");
     assert_eq!(render.source, Some(tabnas_zon::render_text()));
+    let transduce = parts.transduce.expect("ZON carries a transducer");
+    assert_eq!(transduce.entry, "zon-transduce");
+    assert!(transduce.source.is_some_and(|s| !s.is_empty()));
+}
+
+/// A transducer makes the format's JSON events of its parser's rule
+/// passes. ZON's is `alchemy/transduce.alc`, the library's
+/// `transduce-tree` over the grammar's rules, and the crate embeds its own
+/// copy under the entry `zon-transduce`: this holds the copy to the file
+/// the manifest names.
+#[test]
+fn the_transducer_the_manifest_names_is_the_one_the_crate_embeds() {
+    let translate = translate();
+    let parts = tabnas_zon::translate().expect("ZON carries translation parts");
+    let path = translate["transduce"]
+        .as_str()
+        .expect("the manifest names a transducer");
+    assert_eq!(path, "alchemy/transduce.alc");
+    let on_disk = fs::read_to_string(common::repo_root().join(path))
+        .unwrap_or_else(|e| panic!("translate.transduce names {path}, which cannot be read: {e}"));
+    assert!(
+        on_disk.contains("def zon-transduce [input]"),
+        "{path} defines zon-transduce"
+    );
+    let transduce = parts.transduce.unwrap_or_else(|| {
+        panic!("translate.transduce names {path}, and the crate carries no transducer")
+    });
+    assert_eq!(transduce.entry, "zon-transduce");
+    assert_eq!(
+        transduce.source,
+        Some(on_disk.as_str()),
+        "translate.transduce names {path}, and the crate embeds another text: run npm run embed in ts"
+    );
 }
 
 /// ZON is read as a tree and written from one. Its events carry the

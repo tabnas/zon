@@ -1,0 +1,60 @@
+; ZON's transducer part: the document's JSON events from the zon
+; grammar's rule passes (ParserEvents/1), streamed as the parser makes
+; them, so that a host that reads parser events (alchemy-cli's translate
+; and run --grammar, aless) reads a ZON document through this file rather
+; than through transduce's inference over the grammar's rule events.
+;
+; The grammar's rules are named as json's and map onto a tree as json's
+; do: a map rule's open pass begins an object (a struct literal) and its
+; close pass ends it, a list rule's an array (a tuple, or the empty .{});
+; a pair rule's open pass announces the field's name, its first token's
+; value, as the document spells it; and a val rule's open pass yields what
+; its first token carries. For the containers and the keys the part is the
+; library's declarative transducer, transduce-tree, with json's spec keyed
+; by rule name (its open, close and finish steps, over the same state).
+; The scalars are its own, since one of ZON's values the declarative form
+; cannot take from a token: an integer no double holds, which the reader
+; builds as the object {"$big": "<digits>"} (its Rust reader always, its
+; TypeScript and Go readers for a host that asks, as alchemy-cli's parser
+; does), is yielded as that object, one member; every other token's value
+; as the scalar it is, a number with the lexeme it keeps where JSON spells
+; it so (2.50 is written 2.50, 0x10 as 16), a character literal and a
+; multiline string as the value the reader resolved, an enum literal as
+; its name, which is the reader's value too unless a host sets enumTag,
+; whose wrapping is made on the node after its close and reaches no pass.
+; Every event is the one the walk of the grammar's value gives, a number's
+; lexeme aside, which alchemy-cli's transduce.tsv runner holds it to; a
+; repeated field the grammar refuses before any pass streams it.
+def zon-transduce-spec
+  record
+    entry :map (record (entry :container :object))
+    entry :list (record (entry :container :array))
+    entry :pair (record (entry :key 0))
+    entry :val (record (entry :scalar 0))
+
+; A token's value as events: the reader's big integer, a record of one
+; member, as that object; any other as the scalar it is.
+def zon-transduce-value [value]
+  match (kind value)
+    case :record
+      match (keys value)
+        case [name] [object-start (key name) (scalar (get name value)) object-end]
+        case _ (fail :unrepresentable "a token's value is a record the stream has no form for")
+    case _ [(scalar value)]
+
+def zon-transduce-step [state pass]
+  match pass
+    case (open rule)
+      match (get (get :name rule) zon-transduce-spec)
+        case missing (transition state [])
+        case entry
+          match (get :scalar entry)
+            case missing (transduce-open zon-transduce-spec state rule)
+            case _
+              match (get-path (path 0) (get :tokens rule))
+                case missing (transition state [])
+                case token (transition state (zon-transduce-value (get :val token)))
+    case (close rule) (transduce-close zon-transduce-spec state rule)
+
+def zon-transduce [input]
+  as-events (scan-emit [[] false] zon-transduce-step transduce-finish (parser-events input))

@@ -46,6 +46,7 @@
     "writes": "tree",
     "root": "any",
     "render": "alchemy/render.alc",
+    "transduce": "alchemy/transduce.alc",
     "loss": [
       "Comments are not kept.",
       "Every field name is written in the quoted identifier form, .@\"name\", whether or not it is a bare identifier.",

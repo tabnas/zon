@@ -52,3 +52,17 @@ test("the render's big integer reads back as the reader's", () => {
   assert.equal(nested.n, -123456789012345678901234567890n)
   assert.deepEqual([...nested.a], [-123456789012345678901234567890n])
 })
+
+// A transducer makes the format's JSON events of its parser's rule passes.
+// ZON's is alchemy/transduce.alc, which the manifest names and the
+// package embeds under the entry zon-transduce: the copy is held to the
+// file.
+test('translation parts carry the transducer the manifest names', () => {
+  const parts = translate()
+  const spec = JSON.parse(readFileSync(path.join(root, 'tabnas.plugin.json'), 'utf8')).translate
+  assert.equal(spec.transduce, 'alchemy/transduce.alc')
+  const source = readFileSync(path.join(root, spec.transduce), 'utf8')
+  assert.ok(source.includes('def zon-transduce [input]'))
+  assert.equal(parts.transduce?.entry, 'zon-transduce')
+  assert.equal(parts.transduce?.source, source)
+})
