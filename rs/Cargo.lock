@@ -198,7 +198,7 @@ dependencies = [
 
 [[package]]
 name = "tabnas-zon"
-version = "0.5.17"
+version = "0.5.18"
 dependencies = [
  "indexmap",
  "serde",
