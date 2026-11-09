@@ -167,6 +167,18 @@ Every behaviour the corpora pin that is expressible as `input → JSON` is
 (notably [`strict.tsv`](test/spec/strict.tsv)), so the same rules are
 gated without the download.
 
+**The claim holds of a parse from a reader too.** Each runner grades every
+document of both corpora a second time from a reader, through the
+constructor that declares `lex.window` (`make` in TypeScript, `MakeJsonic`
+in Go, `make_with` in Rust), handed over a byte at a time (in Go, 64 bytes
+at a time past 8 KiB, tabnas/parser#321): under the engine's own window
+and, in TypeScript and Rust, under a window of one character, whose edge
+every token meets. A valid document must parse to the same reference
+value, and an invalid one must fail with the code its text fails with. Go's
+window reaches a fixed 64 KiB past the cursor, so no corpus document meets
+its edge there; `go/window_test.go` puts the edge at every place of long
+tokens instead.
+
 ### The documented deviations
 
 Two, both about how a schema-less parser can represent a value that Zig
@@ -278,10 +290,10 @@ field-name test in [`ts/test/zon.test.ts`](ts/test/zon.test.ts) and
 | [`zon-grammar.jsonic`](zon-grammar.jsonic) | **Single source of truth** for the grammar-rule alts (the `val`/`list`/`elem`/`pair` overrides), authored in jsonic syntax. |
 | [`ts/embed-grammar.js`](ts/embed-grammar.js) | Embeds `zon-grammar.jsonic` into **all three** runtimes, `src/zon.ts`, `go/zon.go` and `rs/src/lib.rs` (between `BEGIN/END EMBEDDED` markers), as a `grammarText` / `GRAMMAR_TEXT` string literal. Runs as the first half of `npm run build`. |
 | [`test/spec/`](test/spec/) | Shared `.tsv` conformance fixtures. **All three** runners auto-discover and run every file here, so adding one covers TypeScript, Go and Rust together. See [`test/AGENTS.md`](test/AGENTS.md). |
-| [`ts/test/`](ts/test/) | TS tests (`.ts`, compiled to `dist-test/`): `zon.test.ts` (parse cases), `parity.test.ts` (the shared `test/spec/*.tsv` fixtures), `zigzon.test.ts` (the zig reference corpora), `debug-model.test.ts` (the `@tabnas/debug` composition / model introspection), `doc-examples.test.ts` (runs `// =>` assertions in README/doc fences), `version.test.ts` (the exported `VERSION` vs `package.json`), `translate.test.ts` (the translation parts against the files at the root, and the render's big integer read back). |
-| [`go/zon_test.go`](go/zon_test.go), [`go/parity_test.go`](go/parity_test.go), [`go/zigzon_test.go`](go/zigzon_test.go), [`go/translate_test.go`](go/translate_test.go) | Go test suite — the same parse cases, the same `.tsv` fixtures, the same zig reference corpora, and the same translation tests. |
+| [`ts/test/`](ts/test/) | TS tests (`.ts`, compiled to `dist-test/`): `zon.test.ts` (parse cases), `parity.test.ts` (the shared `test/spec/*.tsv` fixtures), `zigzon.test.ts` (the zig reference corpora), `debug-model.test.ts` (the `@tabnas/debug` composition / model introspection), `doc-examples.test.ts` (runs `// =>` assertions in README/doc fences), `version.test.ts` (the exported `VERSION` vs `package.json`), `translate.test.ts` (the translation parts against the files at the root, and the render's big integer read back), `window.test.ts` (`make` declares `lex.window`, and a parse from a reader gives what the text gives). |
+| [`go/zon_test.go`](go/zon_test.go), [`go/parity_test.go`](go/parity_test.go), [`go/zigzon_test.go`](go/zigzon_test.go), [`go/translate_test.go`](go/translate_test.go), [`go/window_test.go`](go/window_test.go) | Go test suite — the same parse cases, the same `.tsv` fixtures, the same zig reference corpora, the same translation tests, and the same reads from a reader. |
 | [`go/version_test.go`](go/version_test.go) | Checks the Go `const VERSION` against `ts/package.json` (mirrors `ts/test/version.test.ts`). Fails, never skips, if that file cannot be read. |
-| [`rs/tests/`](rs/tests/) | Rust test suite: `zon_test.rs` (the same parse cases), `parity_test.rs` (the same `.tsv` fixtures, a fresh parser per row's `opts`), `zigzon_test.rs` (the same zig reference corpora, fetched first when absent), `debug_model_test.rs` (the `tabnas-debug` composition / model introspection, the Rust half of `debug-model.test.ts`), `perf_test.rs` (`parse` reuses its instance), `version_test.rs` (`rs/Cargo.toml` and `VERSION` against `ts/package.json`; fails, never skips) and `translate_test.rs` (the embedded translation parts against the files at the root, and the render's big integer read back). |
+| [`rs/tests/`](rs/tests/) | Rust test suite: `zon_test.rs` (the same parse cases), `parity_test.rs` (the same `.tsv` fixtures, a fresh parser per row's `opts`), `zigzon_test.rs` (the same zig reference corpora, fetched first when absent), `debug_model_test.rs` (the `tabnas-debug` composition / model introspection, the Rust half of `debug-model.test.ts`), `perf_test.rs` (`parse` reuses its instance), `version_test.rs` (`rs/Cargo.toml` and `VERSION` against `ts/package.json`; fails, never skips), `translate_test.rs` (the embedded translation parts against the files at the root, and the render's big integer read back) and `reader_test.rs` (`make` declares `lex.window`, and a parse from a reader gives what the text gives). |
 | [`scripts/fetch-zigzon.sh`](scripts/fetch-zigzon.sh) | Generator for the zig reference corpora, run automatically by `pretest` (ts) and `TestMain` (go): downloads a pinned zig 0.16.0 toolchain + source (each **verified against a pinned SHA-256**; a mismatch is a hard failure), builds [`test/zigzon/tools/oracle.zig`](test/zigzon/tools/oracle.zig) (a batch judge over `std.zig.Ast` + `std.zig.ZonGen`), harvests every ZON document in the tree ([`harvest.py`](test/zigzon/tools/harvest.py)) and records its verdict ([`judge.py`](test/zigzon/tools/judge.py)). |
 | [`test/strictness/inputs.txt`](test/strictness/inputs.txt) | The locally authored leniency probes. This file decides the **questions**; the oracle decides every **answer**. |
 | [`ts/doc/grammar.svg`](ts/doc/grammar.svg), [`ts/doc/grammar.txt`](ts/doc/grammar.txt) | Railroad / ASCII diagram of the live grammar, generated by `@tabnas/railroad`. |
@@ -440,6 +452,29 @@ outside it (see "Two dev models" below).
   `@val-bc`, which it takes with `/replace`. Go state actions cannot
   return an error token, so the Go side signals via `ctx.ParseErr`; the
   Rust hook returns the token, as TS does.
+- **The six matchers read the source only through the lexer's window**
+  (`lex.window`, admin ADR-30). In a parse from a reader the text a matcher
+  holds ends at the window's end, which may fall inside the token, and the
+  cursor counts from the window's start. TypeScript's `Source` and Go's
+  `source` read the window on where a read would pass its end, to twice as
+  far past the token's start as has been read, so a long token costs its
+  length and not its square; the window drops nothing while a token is
+  cut, so what has been read keeps its place. Rust's matchers are pure
+  cuts (`cut_dot` and the rest) over a `Text` view of the window, which
+  `windowed` makes again over a window read on twice as far whenever a cut
+  read past the window's end. The matchers run before every engine matcher
+  (orders 1e5 to 1.5e5), so reading the window on never hides from a
+  matcher of the same cut what it would read. The constructors that build
+  the parser whole declare the window: `make(options?)` in TypeScript,
+  `MakeJsonic` in Go (on jsonic's base, before `Zon` installs) and
+  `make` / `make_with` in Rust. The plugin alone declares nothing, since a
+  host may install it beneath matchers of its own. `ts/test/window.test.ts`,
+  `go/window_test.go` and `rs/tests/reader_test.rs` hold every fixture row,
+  every strictness probe, tokens of every kind that the window's edge cuts
+  at every place, tokens longer than the engine's own window and a long
+  document to the outcome its text gives (value, or error code, position,
+  row, column and token text). Go cannot shrink its window, so its edge
+  test pads each token past 64 KiB instead.
 - **Whitespace and comments may sit between `.` and what follows**
   (`. foo`, `. {}`), because Zig's tokenizer emits them as separate
   tokens. `skipInsigPos` tracks rows/columns across that gap so error

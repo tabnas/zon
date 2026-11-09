@@ -34,6 +34,12 @@ ziglang/zig 0.16.0 release by `scripts/fetch-zigzon.sh`.
 - Do not shrink a corpus, add a skip list, narrow the option set, or loosen
   the value comparison to improve a number. A conformance figure that cannot
   fail is worth nothing.
+- **Every document is graded from a reader as well as from its text.** The
+  runners read it a second time through the constructor that declares
+  `lex.window`, a byte at a time, under the engine's own window and, in
+  TypeScript and Rust, under a window of one character: a valid document
+  must parse to the same reference value, and an invalid one must fail with
+  the code its text fails with.
 
 ## Format
 

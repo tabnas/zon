@@ -25,6 +25,7 @@ npm install @tabnas/parser @tabnas/jsonic @tabnas/zon
 | Export | Kind | Description |
 |---|---|---|
 | `Zon` | `Plugin` | The plugin function. Register with `engine.use(Zon, options)`. |
+| `make` | function | Builds the engine whole and declares `lex.window` on it. See [`make(options?)`](#makeoptions). |
 | `VERSION` | `string` | This package's version, always equal to `package.json` "version". |
 | `ZonOptions` | type | The options object shape (see [Options](#options)). |
 
@@ -65,6 +66,23 @@ strict Zig number lexer, and the six custom lex matchers).
 The instance is reusable and stateless across parses; build it once
 and reuse it. Building the grammar dominates a parse, so do not
 reconstruct the engine per call.
+
+### `make(options?)`
+
+Builds the engine whole, as `new Tabnas().use(jsonic).use(Zon, options)`
+builds it, and declares `lex.window` on it. A parse from a reader through
+the engine's `parseReader` then reads the reader a window at a time rather
+than whole. The matchers this plugin installs read the source only through
+the window the lexer holds. The plugin alone declares nothing, since a host
+may install it beneath matchers of its own.
+
+```js
+import { make } from '@tabnas/zon'
+
+const j = make({ enumTag: '$enum' })
+
+j.parse('.{ .kind = .red }') // => { kind: { $enum: 'red' } }
+```
 
 ### `engine.parse(src)`
 

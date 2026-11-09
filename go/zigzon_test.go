@@ -28,9 +28,16 @@ package tabnaszon
 //
 // ts/test/zigzon.test.ts and rs/tests/zigzon_test.rs run the identical
 // corpora, so the runtimes cannot drift.
+//
+// Every document is graded from a reader as well as from its text: read
+// through MakeJsonic, which declares lex.window, a byte at a time (64 bytes
+// at a time past 8 KiB, tabnas/parser#321), a valid document must parse to
+// the same reference value, and an invalid one must be rejected with the
+// code its text is (window_test.go).
 
 import (
 	"encoding/json"
+	"errors"
 	"math"
 	"math/big"
 	"os"
@@ -42,6 +49,7 @@ import (
 	"testing"
 
 	jsonic "github.com/tabnas/jsonic/go"
+	tabnas "github.com/tabnas/parser/go"
 )
 
 // Corpus paths, relative to go/ (the working directory of `go test`).
@@ -219,35 +227,55 @@ func runZigCorpus(t *testing.T, path string, wantValid, wantInvalid int) {
 	if err := j.UseDefaults(Zon, Defaults, zigOpts()); err != nil {
 		t.Fatalf("plugin init: %v", err)
 	}
+	// One parser that declares the window, for the reads from a reader.
+	windowed := MakeJsonic(zigOptions())
 
 	for _, c := range doc.Cases {
 		t.Run(zigLabel(c), func(t *testing.T) {
 			got, err := j.Parse(c.Source)
+			size := 1
+			if len(c.Source) > 8<<10 {
+				size = 64
+			}
+			read, readErr := windowed.ParseReader(&pieces{text: []byte(c.Source), size: size})
 
 			if !c.Valid {
 				if err == nil {
 					t.Fatalf("accepted a document zig rejects (%s):\n%s", c.Error, c.Source)
+				}
+				var te, readTe *tabnas.TabnasError
+				if !errors.As(err, &te) || !errors.As(readErr, &readTe) || readTe.Code != te.Code {
+					t.Fatalf("from a reader, %v where the text is %v:\n%s", readErr, err, c.Source)
 				}
 				return
 			}
 			if err != nil {
 				t.Fatalf("rejected a document zig accepts:\n%s\n%v", c.Source, err)
 			}
+			if readErr != nil {
+				t.Fatalf("rejected from a reader a document zig accepts:\n%s\n%v", c.Source, readErr)
+			}
 
-			raw, mErr := json.Marshal(zigCanon(got))
-			if mErr != nil {
-				t.Fatalf("marshal: %v", mErr)
-			}
-			var gotVal, wantVal any
-			if err := json.Unmarshal(raw, &gotVal); err != nil {
-				t.Fatalf("unmarshal got: %v", err)
-			}
+			var wantVal any
 			if err := json.Unmarshal(c.Value, &wantVal); err != nil {
 				t.Fatalf("unmarshal want: %v", err)
 			}
-			if !reflect.DeepEqual(gotVal, wantVal) {
-				t.Errorf("value mismatch for %s\n  got  %s\n  want %s",
-					c.Origin, raw, c.Value)
+			for _, v := range []struct {
+				how string
+				got any
+			}{{"", got}, {" from a reader", read}} {
+				raw, mErr := json.Marshal(zigCanon(v.got))
+				if mErr != nil {
+					t.Fatalf("marshal: %v", mErr)
+				}
+				var gotVal any
+				if err := json.Unmarshal(raw, &gotVal); err != nil {
+					t.Fatalf("unmarshal got: %v", err)
+				}
+				if !reflect.DeepEqual(gotVal, wantVal) {
+					t.Errorf("value mismatch%s for %s\n  got  %s\n  want %s",
+						v.how, c.Origin, raw, c.Value)
+				}
 			}
 		})
 	}

@@ -250,6 +250,65 @@ const Zon: Plugin = (tn: Tabnas, options: ZonOptions) => {
   tn.grammar(grammarDef, { rule: { alt: { g: 'zon' } } })
 }
 
+// The text of the token being cut, read through the lexer's window, so that
+// a parse from a reader may hold a window of the source rather than all of
+// it (`lex.window`, admin ADR-30). While a token is cut, `lex.src` is the
+// window's text and `lex.pnt` counts from the window's start, and the window
+// may end inside the token. Every read here goes through `has`, which reads
+// the window on where a read would pass its end, asking it to reach twice as
+// far past the token's start as has been read, so a long token costs its
+// length and not its square; the text it held keeps its positions, since the
+// window drops nothing while a token is cut. So every read is of the text
+// the whole source has at that place. In a whole text `lex.fill` only
+// answers. The matchers that read through it run before every engine
+// matcher (orders 1e5 to 1.5e5), so reading the window on here never hides
+// from a matcher of the same cut what it would read.
+class Source {
+  private readonly lex: Lex
+  private readonly from: number
+
+  constructor(lex: Lex) {
+    this.lex = lex
+    this.from = lex.pnt.sI
+  }
+
+  // Whether the source has a character at `i`.
+  has(i: number): boolean {
+    const src: string = (this.lex as any).src
+    if (i < src.length) return true
+    const read = i - this.from
+    ;(this.lex as any).fill?.(Math.max(read + 1, 2 * read))
+    return i < (this.lex as any).src.length
+  }
+
+  // The UTF-16 unit at `i`, or undefined past the end of the source.
+  at(i: number): string | undefined {
+    return this.has(i) ? (this.lex as any).src[i] : undefined
+  }
+
+  // The unit's code at `i`, or NaN past the end of the source.
+  code(i: number): number {
+    return this.has(i) ? (this.lex as any).src.charCodeAt(i) : NaN
+  }
+
+  // The code point at `i`. The window holds whole characters, so a pair's
+  // second half is held with its first.
+  point(i: number): number | undefined {
+    return this.has(i) ? (this.lex as any).src.codePointAt(i) : undefined
+  }
+
+  // The text from `a` to `b`, cut at the end of the source.
+  text(a: number, b: number): string {
+    this.has(b - 1)
+    return (this.lex as any).src.substring(a, b)
+  }
+
+  // `end`, or the end of the source where it ends sooner.
+  cap(end: number): number {
+    return this.has(end - 1) ? end : (this.lex as any).src.length
+  }
+}
+
 // Custom lex matcher for `.`-prefixed tokens.
 //   `.{`            -> #OB if followed by `.ident =`, otherwise #OS
 //   `.identifier`   -> #TX (val = identifier, use.zonEnum = true)
@@ -259,9 +318,9 @@ function buildZonDotMatcher() {
   return function makeZonDotMatcher(cfg: Config, _opts: TabnasOptions) {
     return function zonDotMatcher(lex: Lex) {
       const { pnt } = lex
-      const src: string = lex.src as unknown as string
+      const src = new Source(lex)
       const { sI, cI, rI } = pnt
-      if ('.' !== src[sI]) return undefined
+      if ('.' !== src.at(sI)) return undefined
 
       // Zig's tokenizer emits `.` and what follows as separate tokens, so
       // whitespace and comments may sit between them (`. foo`, `. {}`).
@@ -277,35 +336,35 @@ function buildZonDotMatcher() {
       }
 
       // `.{` opens a struct literal. Decide map vs list by peeking ahead.
-      if ('{' === src[dI]) {
+      if ('{' === src.at(dI)) {
         const isMap = peekIsMapOpen(cfg, src, dI + 1)
         const tin = isMap ? '#OB' : '#OS'
-        const tkn = lex.token(tin, undefined, src.substring(sI, dI + 1), pnt)
+        const tkn = lex.token(tin, undefined, src.text(sI, dI + 1), pnt)
         advance(dI + 1)
         return tkn
       }
 
       // `.@"..."` - escaped identifier: any string may name a field or an
       // enum literal. Zig rejects an empty one (`.@""`).
-      if ('@' === src[dI] && '"' === src[dI + 1]) {
+      if ('@' === src.at(dI) && '"' === src.at(dI + 1)) {
         const dec = decodeZigString(src, dI + 2)
         // Zig rejects an empty identifier and one containing a null byte.
         if (null === dec || '' === dec.val || -1 !== dec.val.indexOf('\u0000')) {
           return lex.bad('zon_ident', sI, null === dec ? dI + 2 : dec.end)
         }
-        const srcText = src.substring(sI, dec.end)
+        const srcText = src.text(sI, dec.end)
         const tkn = lex.token('#TX', dec.val, srcText, pnt, { zonEnum: true })
         advance(dec.end)
         return tkn
       }
 
       // `.identifier` - field name or enum literal.
-      if (!isIdStart(src.charCodeAt(dI))) return undefined
+      if (!isIdStart(src.code(dI))) return undefined
       let eI = dI
-      while (eI < src.length && isIdCont(src.charCodeAt(eI))) eI++
+      while (src.has(eI) && isIdCont(src.code(eI))) eI++
 
-      const srcText = src.substring(sI, eI)
-      const name = src.substring(dI, eI)
+      const srcText = src.text(sI, eI)
+      const name = src.text(dI, eI)
       const tkn = lex.token('#TX', name, srcText, pnt, { zonEnum: true })
       advance(eI)
       return tkn
@@ -317,13 +376,13 @@ function buildZonDotMatcher() {
 // so a token that follows still reports an accurate source position.
 function skipInsigPos(
   cfg: Config,
-  src: string,
+  src: Source,
   i: number,
   rI: number,
   cI: number,
 ): { i: number; rI: number; cI: number } {
-  while (i < src.length) {
-    const c = src[i]
+  while (src.has(i)) {
+    const c = src.at(i) as string
     if (cfg.line.chars[c]) {
       if (cfg.line.rowChars[c]) rI++
       cI = 1
@@ -331,8 +390,8 @@ function skipInsigPos(
     } else if (' ' === c || '\t' === c) {
       i++
       cI++
-    } else if ('/' === c && '/' === src[i + 1]) {
-      while (i < src.length && !cfg.line.chars[src[i]]) {
+    } else if ('/' === c && '/' === src.at(i + 1)) {
+      while (src.has(i) && !cfg.line.chars[src.at(i) as string]) {
         i++
         cI++
       }
@@ -346,21 +405,21 @@ function skipInsigPos(
 // Returns true if the position inside `.{ ... }` starts with a field name
 // (`.ident` or `.@"..."`) followed by `=`, indicating a struct/map literal
 // rather than a tuple/list.
-function peekIsMapOpen(cfg: Config, src: string, start: number): boolean {
+function peekIsMapOpen(cfg: Config, src: Source, start: number): boolean {
   let i = skipInsig(cfg, src, start)
-  if ('.' !== src[i]) return false
+  if ('.' !== src.at(i)) return false
   i = skipInsig(cfg, src, i + 1)
-  if ('@' === src[i] && '"' === src[i + 1]) {
+  if ('@' === src.at(i) && '"' === src.at(i + 1)) {
     const dec = decodeZigString(src, i + 2)
     if (null === dec) return false
     i = dec.end
   } else {
-    if (!isIdStart(src.charCodeAt(i))) return false
+    if (!isIdStart(src.code(i))) return false
     i++
-    while (i < src.length && isIdCont(src.charCodeAt(i))) i++
+    while (src.has(i) && isIdCont(src.code(i))) i++
   }
   i = skipInsig(cfg, src, i)
-  return '=' === src[i]
+  return '=' === src.at(i)
 }
 
 // Decode a Zig double-quoted string body starting at `i` (just past the
@@ -368,7 +427,7 @@ function peekIsMapOpen(cfg: Config, src: string, start: number): boolean {
 // closing quote, or null when the literal is malformed. The `.@"..."`
 // identifier form, which Zig lexes with the same rules as a string.
 function decodeZigString(
-  src: string,
+  src: Source,
   i: number,
 ): { val: string; end: number } | null {
   const scan = scanZigString(src, i)
@@ -400,7 +459,7 @@ type ZigStringScan = { val: string; end: number; err?: string }
 // sign, and an ill-formed sequence becomes one U+FFFD per maximal subpart,
 // as TextDecoder decodes it. A raw control character, a line end
 // included, is not a string character.
-function scanZigString(src: string, start: number): ZigStringScan {
+function scanZigString(src: Source, start: number): ZigStringScan {
   let out = ''
   // The bytes of consecutive `\xNN` escapes, decoded together.
   let pending: number[] = []
@@ -411,11 +470,11 @@ function scanZigString(src: string, start: number): ZigStringScan {
     }
   }
   const fault = (err: string, end: number): ZigStringScan =>
-    ({ val: '', end: Math.min(end, src.length), err })
+    ({ val: '', end: src.cap(end), err })
 
   let i = start
-  while (i < src.length) {
-    const c = src.charCodeAt(i)
+  while (src.has(i)) {
+    const c = src.code(i)
     if (34 === c) {
       flush()
       return { val: out, end: i + 1 }
@@ -424,25 +483,25 @@ function scanZigString(src: string, start: number): ZigStringScan {
     if (c < 0x20 || 0x7f === c) return fault('unprintable', i + 1)
     if (92 !== c) {
       flush()
-      out += src[i]
+      out += src.at(i)
       i++
       continue
     }
-    const e = src[i + 1]
+    const e = src.at(i + 1)
     if (undefined === e) return fault('unterminated_string', i + 1)
     if ('x' === e) {
-      const hex = src.substring(i + 2, i + 4)
+      const hex = src.text(i + 2, i + 4)
       if (!/^[0-9a-fA-F]{2}$/.test(hex)) return fault('invalid_ascii', i + 4)
       pending.push(parseInt(hex, 16))
       i += 4
     } else if ('u' === e) {
-      if ('{' !== src[i + 2]) return fault('invalid_unicode', i + 3)
+      if ('{' !== src.at(i + 2)) return fault('invalid_unicode', i + 3)
       let close = i + 3
-      while (close < src.length && -1 !== digitVal(src[close])) close++
-      if (close === i + 3 || '}' !== src[close]) {
+      while (src.has(close) && -1 !== digitVal(src.at(close) as string)) close++
+      if (close === i + 3 || '}' !== src.at(close)) {
         return fault('invalid_unicode', close + 1)
       }
-      const cp = parseInt(src.substring(i + 3, close), 16)
+      const cp = parseInt(src.text(i + 3, close), 16)
       if (0x10ffff < cp || (0xd800 <= cp && cp <= 0xdfff)) {
         return fault('invalid_unicode', close + 1)
       }
@@ -457,7 +516,7 @@ function scanZigString(src: string, start: number): ZigStringScan {
       return fault('unexpected', i + 2)
     }
   }
-  return fault('unterminated_string', src.length)
+  return fault('unterminated_string', src.cap(i))
 }
 
 // Zig double-quoted strings, `"..."`, with Zig's escape set and no other.
@@ -470,14 +529,14 @@ function buildZonStringMatcher() {
   return function makeZonStringMatcher(_cfg: Config, _opts: TabnasOptions) {
     return function zonStringMatcher(lex: Lex) {
       const { pnt } = lex
-      const src: string = lex.src as unknown as string
+      const src = new Source(lex)
       const { sI, cI } = pnt
-      if ('"' !== src[sI]) return undefined
+      if ('"' !== src.at(sI)) return undefined
 
       const scan = scanZigString(src, sI + 1)
       if (undefined !== scan.err) return lex.bad(scan.err, sI, scan.end)
 
-      const tkn = lex.token('#ST', scan.val, src.substring(sI, scan.end), pnt)
+      const tkn = lex.token('#ST', scan.val, src.text(sI, scan.end), pnt)
       pnt.sI = scan.end
       pnt.cI = cI + (scan.end - sI)
       return tkn
@@ -497,7 +556,7 @@ const ZIG_ESCAPE: Record<string, string> = {
 }
 
 // Skip whitespace, newlines, and `//` line comments (position only).
-function skipInsig(cfg: Config, src: string, i: number): number {
+function skipInsig(cfg: Config, src: Source, i: number): number {
   return skipInsigPos(cfg, src, i, 1, 1).i
 }
 
@@ -524,8 +583,9 @@ function isIdCont(c: number): boolean {
 function buildZonMultiStringMatcher() {
   return function makeZonMultiStringMatcher(cfg: Config, _opts: TabnasOptions) {
     return function zonMultiStringMatcher(lex: Lex) {
-      const { pnt } = lex; const src: string = lex.src as unknown as string
-      if ('\\' !== src[pnt.sI] || '\\' !== src[pnt.sI + 1]) return undefined
+      const { pnt } = lex
+      const src = new Source(lex)
+      if ('\\' !== src.at(pnt.sI) || '\\' !== src.at(pnt.sI + 1)) return undefined
 
       const startI = pnt.sI
       const startCI = pnt.cI
@@ -533,18 +593,18 @@ function buildZonMultiStringMatcher() {
       let rI = pnt.rI
       const parts: string[] = []
 
-      while ('\\' === src[sI] && '\\' === src[sI + 1]) {
+      while ('\\' === src.at(sI) && '\\' === src.at(sI + 1)) {
         sI += 2
         const lineStart = sI
-        while (sI < src.length && !cfg.line.chars[src[sI]]) sI++
-        parts.push(src.substring(lineStart, sI))
+        while (src.has(sI) && !cfg.line.chars[src.at(sI) as string]) sI++
+        parts.push(src.text(lineStart, sI))
 
         // Consume line terminator (handle \r\n as one).
-        if (sI < src.length && cfg.line.chars[src[sI]]) {
-          const ch = src[sI]
+        if (src.has(sI) && cfg.line.chars[src.at(sI) as string]) {
+          const ch = src.at(sI) as string
           if (cfg.line.rowChars[ch]) rI++
           sI++
-          if (sI < src.length && '\r' === ch && '\n' === src[sI]) sI++
+          if (src.has(sI) && '\r' === ch && '\n' === src.at(sI)) sI++
         }
 
         // Look for another `\\` continuation. Zig's tokenizer treats the
@@ -553,8 +613,8 @@ function buildZonMultiStringMatcher() {
         // (and contribute nothing) rather than ending it.
         let peek = sI
         let peekR = 0
-        while (peek < src.length) {
-          const pc = src[peek]
+        while (src.has(peek)) {
+          const pc = src.at(peek) as string
           if (' ' === pc || '\t' === pc) {
             peek++
           } else if (cfg.line.chars[pc]) {
@@ -564,13 +624,13 @@ function buildZonMultiStringMatcher() {
             break
           }
         }
-        if ('\\' !== src[peek] || '\\' !== src[peek + 1]) break
+        if ('\\' !== src.at(peek) || '\\' !== src.at(peek + 1)) break
         sI = peek
         rI += peekR
       }
 
       const val = parts.join('\n')
-      const tsrc = src.substring(startI, sI)
+      const tsrc = src.text(startI, sI)
       const tkn = lex.token('#ST', val, tsrc, pnt)
       pnt.sI = sI
       pnt.rI = rI
@@ -587,16 +647,17 @@ function buildZonMultiStringMatcher() {
 function buildZonCharMatcher(charAsNumber: boolean) {
   return function makeZonCharMatcher(_cfg: Config, _opts: TabnasOptions) {
     return function zonCharMatcher(lex: Lex) {
-      const { pnt } = lex; const src: string = lex.src as unknown as string
+      const { pnt } = lex
+      const src = new Source(lex)
       const { sI, cI } = pnt
-      if ('\'' !== src[sI]) return undefined
+      if ('\'' !== src.at(sI)) return undefined
 
       let i = sI + 1
       let codepoint: number | null = null
 
-      if ('\\' === src[i]) {
+      if ('\\' === src.at(i)) {
         i++
-        const esc = src[i]
+        const esc = src.at(i)
         switch (esc) {
           case 'n': codepoint = 10; i++; break
           case 'r': codepoint = 13; i++; break
@@ -609,7 +670,7 @@ function buildZonCharMatcher(charAsNumber: boolean) {
           // character: '0'".
           case 'x': {
             i++
-            const hex = src.substring(i, i + 2)
+            const hex = src.text(i, i + 2)
             if (!/^[0-9a-fA-F]{2}$/.test(hex)) return undefined
             codepoint = parseInt(hex, 16)
             i += 2
@@ -617,26 +678,32 @@ function buildZonCharMatcher(charAsNumber: boolean) {
           }
           case 'u': {
             i++
-            if ('{' !== src[i]) return undefined
+            if ('{' !== src.at(i)) return undefined
             i++
-            const endI = src.indexOf('}', i)
-            if (-1 === endI) return undefined
-            const hex = src.substring(i, endI)
+            // The hex digits and the `}` they end on. A run that ends on
+            // anything else is no character literal: the first `}` after
+            // `{`, wherever it is, closes a run that is not all hex digits.
+            let endI = i
+            while (src.has(endI) && -1 !== digitVal(src.at(endI) as string)) endI++
+            if ('}' !== src.at(endI)) return undefined
+            const hex = src.text(i, endI)
             if (!/^[0-9a-fA-F]+$/.test(hex)) return undefined
             codepoint = parseInt(hex, 16)
             // Zig: a character literal is an INTEGER, so the escape names
             // a code point rather than a scalar value: U+10FFFF is the
             // only bound, and a lone surrogate is accepted. Measured: the
             // pinned zig 0.16.0 oracle answers `'\u{D800}'` with 55296.
-            if (0x10ffff < codepoint) return lex.bad('zon_char', sI, endI + 2)
+            if (0x10ffff < codepoint) {
+              return lex.bad('zon_char', sI, src.cap(endI + 2))
+            }
             i = endI + 1
             break
           }
           default:
             return undefined
         }
-      } else if (src[i] && '\'' !== src[i]) {
-        codepoint = src.codePointAt(i) as number
+      } else if (src.has(i) && '\'' !== src.at(i)) {
+        codepoint = src.point(i) as number
         // A raw control character (notably a literal newline) is not a
         // character literal in Zig — it is an invalid token.
         if (codepoint < 0x20 || 0x7f === codepoint) {
@@ -647,10 +714,10 @@ function buildZonCharMatcher(charAsNumber: boolean) {
         return undefined
       }
 
-      if ('\'' !== src[i]) return undefined
+      if ('\'' !== src.at(i)) return undefined
       i++
 
-      const tsrc = src.substring(sI, i)
+      const tsrc = src.text(sI, i)
       const val = charAsNumber ? codepoint : String.fromCodePoint(codepoint!)
       const tkn = lex.token('#NR', val, tsrc, pnt)
       pnt.sI = i
@@ -668,11 +735,11 @@ function buildZonDocCommentMatcher() {
   return function makeZonDocCommentMatcher(_cfg: Config, _opts: TabnasOptions) {
     return function zonDocCommentMatcher(lex: Lex) {
       const { pnt } = lex
-      const src: string = lex.src as unknown as string
+      const src = new Source(lex)
       const sI = pnt.sI
-      if ('/' !== src[sI] || '/' !== src[sI + 1]) return undefined
-      const c = src[sI + 2]
-      if ('!' === c || ('/' === c && '/' !== src[sI + 3])) {
+      if ('/' !== src.at(sI) || '/' !== src.at(sI + 1)) return undefined
+      const c = src.at(sI + 2)
+      if ('!' === c || ('/' === c && '/' !== src.at(sI + 3))) {
         return lex.bad('zon_doc_comment', sI, sI + 3)
       }
       return undefined
@@ -693,28 +760,28 @@ function buildZonNumberMatcher() {
   return function makeZonNumberMatcher(_cfg: Config, _opts: TabnasOptions) {
     return function zonNumberMatcher(lex: Lex) {
       const { pnt } = lex
-      const src: string = lex.src as unknown as string
+      const src = new Source(lex)
       const { sI, cI } = pnt
 
       let i = sI
       let neg = false
-      if ('-' === src[sI]) {
+      if ('-' === src.at(sI)) {
         neg = true
         i++
-        while (' ' === src[i] || '\t' === src[i]) i++
+        while (' ' === src.at(i) || '\t' === src.at(i)) i++
       }
 
-      const c = src[i]
+      const c = src.at(i)
       if (undefined === c) return undefined
 
       // The `inf` / `nan` keywords. Zig allows `-inf` but not `-nan`.
       if ('i' === c || 'n' === c) {
-        const kw = src.substring(i, i + 3)
-        if (('inf' === kw || 'nan' === kw) && !isIdCont(src.charCodeAt(i + 3))) {
+        const kw = src.text(i, i + 3)
+        if (('inf' === kw || 'nan' === kw) && !isIdCont(src.code(i + 3))) {
           if ('nan' === kw && neg) return lex.bad('zon_number', sI, i + 3)
           const val = 'inf' === kw ? (neg ? -Infinity : Infinity) : NaN
           const end = i + 3
-          const tkn = lex.token('#NR', val, src.substring(sI, end), pnt)
+          const tkn = lex.token('#NR', val, src.text(sI, end), pnt)
           pnt.sI = end
           pnt.cI = cI + (end - sI)
           return tkn
@@ -741,7 +808,7 @@ function buildZonNumberMatcher() {
       }
 
       const end = num.end
-      const tkn = lex.token('#NR', val, src.substring(sI, end), pnt)
+      const tkn = lex.token('#NR', val, src.text(sI, end), pnt)
       pnt.sI = end
       pnt.cI = cI + (end - sI)
       return tkn
@@ -758,13 +825,13 @@ type ZonNumScan = {
 }
 
 // Scan one unsigned Zig numeric literal starting at `start` (a digit).
-function scanZonNumber(src: string, start: number): ZonNumScan {
+function scanZonNumber(src: Source, start: number): ZonNumScan {
   let i = start
   let base = 10
   const fail = (): ZonNumScan => ({ end: scanNumTokenEnd(src, start), err: true })
 
-  if ('0' === src[i]) {
-    const c1 = src[i + 1]
+  if ('0' === src.at(i)) {
+    const c1 = src.at(i + 1)
     if ('x' === c1 || 'o' === c1 || 'b' === c1) {
       base = 'x' === c1 ? 16 : 'o' === c1 ? 8 : 2
       i += 2
@@ -777,13 +844,13 @@ function scanZonNumber(src: string, start: number): ZonNumScan {
 
   const intRun = scanDigitRun(src, i, base)
   if (intRun.bad) return fail()
-  const intText = src.substring(i, intRun.end).replace(/_/g, '')
+  const intText = src.text(i, intRun.end).replace(/_/g, '')
   i = intRun.end
 
   let isFloat = false
   let fracText = ''
-  if ('.' === src[i]) {
-    const after = src[i + 1]
+  if ('.' === src.at(i)) {
+    const after = src.at(i + 1)
     const afterDV = undefined === after ? -1 : digitVal(after)
     // A `.` only starts a fraction when a digit of this base, or this
     // base's exponent letter, follows; otherwise it is a stray token and
@@ -800,7 +867,7 @@ function scanZonNumber(src: string, start: number): ZonNumScan {
       i++
       const fracRun = scanDigitRun(src, i, base)
       if (fracRun.bad) return fail()
-      fracText = src.substring(i, fracRun.end).replace(/_/g, '')
+      fracText = src.text(i, fracRun.end).replace(/_/g, '')
       i = fracRun.end
     }
   }
@@ -808,25 +875,26 @@ function scanZonNumber(src: string, start: number): ZonNumScan {
   let expVal = 0
   let hasExp = false
   const expChar = 16 === base ? 'pP' : 10 === base ? 'eE' : ''
-  if ('' !== expChar && undefined !== src[i] && -1 !== expChar.indexOf(src[i])) {
+  const x = src.at(i)
+  if ('' !== expChar && undefined !== x && -1 !== expChar.indexOf(x)) {
     hasExp = true
     isFloat = true
     i++
     let expSign = 1
-    if ('+' === src[i] || '-' === src[i]) {
-      if ('-' === src[i]) expSign = -1
+    if ('+' === src.at(i) || '-' === src.at(i)) {
+      if ('-' === src.at(i)) expSign = -1
       i++
     }
     const expRun = scanDigitRun(src, i, 10)
     if (expRun.bad || 0 === expRun.count) return fail()
-    expVal = expSign * parseInt(src.substring(i, expRun.end).replace(/_/g, ''), 10)
+    expVal = expSign * parseInt(src.text(i, expRun.end).replace(/_/g, ''), 10)
     i = expRun.end
   }
 
   if (0 === intRun.count && 0 === fracText.length) return fail()
 
   // Anything alphanumeric still attached is a digit invalid for this base.
-  if (undefined !== src[i] && isIdCont(src.charCodeAt(i))) return fail()
+  if (isIdCont(src.code(i))) return fail()
 
   if (isFloat) {
     let num: number
@@ -850,15 +918,15 @@ function scanZonNumber(src: string, start: number): ZonNumScan {
 // Scan a run of `base` digits with Zig's digit-separator rules: a `_` must
 // sit directly between two digits (no leading, trailing, or repeated `_`).
 function scanDigitRun(
-  src: string,
+  src: Source,
   i: number,
   base: number,
 ): { end: number; count: number; bad: boolean } {
   const start = i
   let count = 0
   let prevDigit = false
-  for (; i < src.length; i++) {
-    const ch = src[i]
+  for (; src.has(i); i++) {
+    const ch = src.at(i) as string
     if ('_' === ch) {
       if (!prevDigit) return { end: i, count, bad: true }
       prevDigit = false
@@ -878,12 +946,12 @@ function scanDigitRun(
 
 // The greedy extent of a malformed numeric token, so the error span covers
 // the whole literal rather than its first character.
-function scanNumTokenEnd(src: string, i: number): number {
-  while (i < src.length) {
-    const c = src.charCodeAt(i)
+function scanNumTokenEnd(src: Source, i: number): number {
+  while (src.has(i)) {
+    const c = src.code(i)
     if (isIdCont(c)) {
       i++
-    } else if (46 === c && i + 1 < src.length && isIdCont(src.charCodeAt(i + 1))) {
+    } else if (46 === c && src.has(i + 1) && isIdCont(src.code(i + 1))) {
       i++
     } else {
       break
@@ -910,7 +978,21 @@ Zon.defaults = {
   enumTag: null,
 } as ZonOptions
 
-export { Zon, VERSION }
+// Build a ZON parser whole: jsonic's base with the plugin installed, as
+// `new Tabnas().use(jsonic).use(Zon, options)` builds it, and with
+// `lex.window` declared, so that `tn.parseReader` reads a reader a window at
+// a time rather than whole (admin ADR-30). The matchers this grammar
+// installs read the source only through the lexer's window, and jsonic's
+// base is the engine's own matchers. The window is declared here, on the
+// parser this package makes whole, and not in `Zon`, which a host may
+// install beneath matchers of its own.
+function make(options: Partial<ZonOptions> = {}): Tabnas {
+  const tn = new Tabnas().use(jsonic).use(Zon, options)
+  tn.options({ lex: { window: true } })
+  return tn
+}
+
+export { Zon, VERSION, make }
 export type { ZonOptions }
 
 export { translate } from './translate'

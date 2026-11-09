@@ -17,6 +17,7 @@ and this file only covers what is specific to this crate.
 | `tests/perf_test.rs` | `parse()` reuses its instance; reuse beats rebuild-per-parse |
 | `tests/zon_test.rs` | in-language behaviour: the `go/zon_test.go` cases, the values with no JSON spelling, error codes and messages, the API, the embedded grammar, threads |
 | `tests/version_test.rs` | Cargo.toml == `VERSION` == ts/package.json |
+| `tests/reader_test.rs` | a parse from a reader: `make` declares `lex.window`, and every fixture row, every strictness probe, tokens of every kind the window's edge cuts at every place, tokens longer than the engine's window and a long document give from a reader, in pieces of a few bytes and under windows of a few characters, what their text gives |
 | `tests/translate_test.rs` | the embedded `translate/manifest.json` is `../tabnas.plugin.json`, the embedded `translate/render.alc` is the file its `translate.render` names, the embed it names is the one `translate()` carries (none, for ZON), the shapes and the loss lines are well formed, every definition in the render is named `zon-`, and the documents the render writes for the reader's big integer read back as one, which no shared fixture can spell |
 | `tests/common/mod.rs` | shared helpers: repo root, spec dir, value and failure conversion, the `opts` reader |
 | `README.md` | the crate front page, prose-gated; its `rust` fences are doctests of this crate (see below) |
@@ -101,7 +102,17 @@ code in all three runtimes. A CHARACTER literal is an integer in Zig and
 does accept a surrogate, so `char_matcher` deliberately keeps the wider
 `<= 0x10FFFF` bound and does not share the scanner.
 
-They work on `lexer.remaining()` by byte index and only ever slice at
+Each is a pure cut (`cut_dot`, `cut_string`, `cut_multi_string`,
+`cut_char`, `cut_doc_comment`, `cut_number`) over a `Text`, a view of
+`lexer.window()`: the source from the cursor, which in a parse from a
+reader ends at the window's end and may end inside the token. A read past
+what `Text` holds answers as the end of the source would and marks the
+view short, and `windowed` then reads the window on to twice what it held
+and makes the cut again, until no read passes the end or the source has
+ended, so the cut is the one the whole source gives and a long token
+costs its length to read. `make` and `make_with` declare `lex.window`;
+`zon` and `plugin` do not, since a host may install the plugin beneath
+matchers of its own. The cuts read by byte index and only ever slice at
 ASCII positions or whole decoded characters, so a byte index is always a
 character boundary where it is used. The cursor moves through
 `lexer.advance_chars`, which keeps `row`/`col` honest across the newlines
@@ -228,7 +239,9 @@ test measures.
 either `cases.json` is missing and the host is one the script has a
 pinned zig toolchain for, then grades both corpora with the pinned census
 (184/44 and 68/95). A missing corpus FAILS the test; the only skip is the
-platform one, and it names the platform. Do not widen it.
+platform one, and it names the platform. Do not widen it. Every document
+is graded from a reader as well, a byte at a time through `make_with`,
+under the engine's own window and under a window of one character.
 
 Those two numbers live in `ZIGZON_CENSUS` and `STRICTNESS_CENSUS` in that
 file, and `the_corpus_census_in_the_docs_is_the_one_the_runners_pin` holds
