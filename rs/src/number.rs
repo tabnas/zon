@@ -17,6 +17,8 @@
 //! lose precision, to render the decimal string the `$big` object carries
 //! (see `big_value` in the lexer module).
 
+use crate::lex::Text;
+
 /// One scanned unsigned literal.
 pub(crate) enum Scanned {
     /// An integer literal, with its exact digits.
@@ -27,15 +29,15 @@ pub(crate) enum Scanned {
 
 /// Scan one unsigned Zig numeric literal starting at `start`, which must
 /// be an ASCII digit. `Err(end)` spans the whole malformed literal, so the
-/// error can quote it rather than its first character.
-pub(crate) fn scan(src: &str, start: usize) -> Result<Scanned, usize> {
-    let bytes = src.as_bytes();
+/// error can quote it rather than its first character. It reads the text
+/// the lexer holds, the window in a parse from a reader ([`Text`]).
+pub(crate) fn scan(text: &Text<'_>, start: usize) -> Result<Scanned, usize> {
     let mut i = start;
     let mut base: u32 = 10;
-    let fail = || Err(token_end(src, start));
+    let fail = || Err(token_end(text, start));
 
-    if bytes[i] == b'0' {
-        match bytes.get(i + 1).copied() {
+    if text.byte(i) == Some(b'0') {
+        match text.byte(i + 1) {
             Some(b'x') => {
                 base = 16;
                 i += 2;
@@ -56,17 +58,17 @@ pub(crate) fn scan(src: &str, start: usize) -> Result<Scanned, usize> {
         }
     }
 
-    let (int_end, int_count, int_bad) = digit_run(bytes, i, base);
+    let (int_end, int_count, int_bad) = digit_run(text, i, base);
     if int_bad {
         return fail();
     }
-    let int_text = src[i..int_end].replace('_', "");
+    let int_text = text.slice(i, int_end).replace('_', "");
     i = int_end;
 
     let mut is_float = false;
     let mut frac_text = String::new();
-    if bytes.get(i) == Some(&b'.') {
-        let after = bytes.get(i + 1).copied();
+    if text.byte(i) == Some(b'.') {
+        let after = text.byte(i + 1);
         let after_digit = after.map_or(-1, digit_val);
         // A `.` only starts a fraction when a digit of this base, or this
         // base's exponent letter, follows; otherwise it is a stray token and
@@ -82,11 +84,11 @@ pub(crate) fn scan(src: &str, start: usize) -> Result<Scanned, usize> {
             }
             is_float = true;
             i += 1;
-            let (frac_end, _, frac_bad) = digit_run(bytes, i, base);
+            let (frac_end, _, frac_bad) = digit_run(text, i, base);
             if frac_bad {
                 return fail();
             }
-            frac_text = src[i..frac_end].replace('_', "");
+            frac_text = text.slice(i, frac_end).replace('_', "");
             i = frac_end;
         }
     }
@@ -98,12 +100,12 @@ pub(crate) fn scan(src: &str, start: usize) -> Result<Scanned, usize> {
         10 => b"eE",
         _ => b"",
     };
-    if bytes.get(i).is_some_and(|c| exp_chars.contains(c)) {
+    if text.byte(i).is_some_and(|c| exp_chars.contains(&c)) {
         has_exp = true;
         is_float = true;
         i += 1;
         let mut exp_sign: i64 = 1;
-        match bytes.get(i) {
+        match text.byte(i) {
             Some(b'+') => i += 1,
             Some(b'-') => {
                 exp_sign = -1;
@@ -111,14 +113,14 @@ pub(crate) fn scan(src: &str, start: usize) -> Result<Scanned, usize> {
             }
             _ => {}
         }
-        let (exp_end, exp_count, exp_bad) = digit_run(bytes, i, 10);
+        let (exp_end, exp_count, exp_bad) = digit_run(text, i, 10);
         if exp_bad || exp_count == 0 {
             return fail();
         }
         // An exponent no double can survive is saturated rather than
         // parsed: past a million either way the value is already
         // infinity or zero.
-        let digits = src[i..exp_end].replace('_', "");
+        let digits = text.slice(i, exp_end).replace('_', "");
         exp_val = exp_sign * digits.parse::<i64>().unwrap_or(1_000_000).min(1_000_000);
         i = exp_end;
     }
@@ -129,7 +131,7 @@ pub(crate) fn scan(src: &str, start: usize) -> Result<Scanned, usize> {
 
     // Anything alphanumeric still attached is a digit invalid for this
     // base.
-    if bytes.get(i).is_some_and(|&c| is_id_cont(c)) {
+    if text.byte(i).is_some_and(is_id_cont) {
         return fail();
     }
 
@@ -171,12 +173,11 @@ pub(crate) fn scan(src: &str, start: usize) -> Result<Scanned, usize> {
 /// must sit directly between two digits (no leading, trailing, or
 /// repeated `_`). Returns the end index, the digit count, and whether the
 /// run was malformed.
-fn digit_run(bytes: &[u8], start: usize, base: u32) -> (usize, usize, bool) {
+fn digit_run(text: &Text<'_>, start: usize, base: u32) -> (usize, usize, bool) {
     let mut i = start;
     let mut count = 0;
     let mut prev_digit = false;
-    while i < bytes.len() {
-        let c = bytes[i];
+    while let Some(c) = text.byte(i) {
         if c == b'_' {
             if !prev_digit {
                 return (i, count, true);
@@ -202,12 +203,10 @@ fn digit_run(bytes: &[u8], start: usize, base: u32) -> (usize, usize, bool) {
 
 /// The greedy extent of a malformed numeric token, so the error span
 /// covers the whole literal rather than its first character.
-fn token_end(src: &str, start: usize) -> usize {
-    let bytes = src.as_bytes();
+fn token_end(text: &Text<'_>, start: usize) -> usize {
     let mut i = start;
-    while i < bytes.len() {
-        let attached = is_id_cont(bytes[i])
-            || (bytes[i] == b'.' && bytes.get(i + 1).is_some_and(|&c| is_id_cont(c)));
+    while let Some(c) = text.byte(i) {
+        let attached = is_id_cont(c) || (c == b'.' && text.byte(i + 1).is_some_and(is_id_cont));
         if !attached {
             break;
         }

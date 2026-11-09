@@ -29,6 +29,12 @@
 // `go/zigzon_test.go` and `rs/tests/zigzon_test.rs` run the identical
 // corpora, so the runtimes cannot drift.
 //
+// Every document is graded from a reader as well as from its text: read a
+// byte at a time through `make(OPTS)`, which declares `lex.window`, under
+// the engine's own window and under a window of one character, a valid
+// document must parse to the same reference value, and an invalid one must
+// be rejected with the code its text is (`window.test.ts`).
+//
 // Do not shrink a corpus, add a skip list, or loosen the comparison to make
 // the number look better: it is a measuring instrument.
 
@@ -39,7 +45,7 @@ import { join } from 'node:path'
 
 import { Tabnas } from '@tabnas/parser'
 import { jsonic } from '@tabnas/jsonic'
-import { Zon } from '../dist/zon'
+import { Zon, make } from '../dist/zon'
 
 // Loaded from `dist-test/`, so hop up one level to reach the repo root.
 const REPO = join(__dirname, '..', '..')
@@ -81,6 +87,40 @@ function canon(v: any): any {
   const out: any = {}
   for (const k of Object.keys(v)) out[k] = canon(v[k])
   return out
+}
+
+// A reader that hands the text's bytes over one at a time.
+function bytewise(text: string): { read(buf: Uint8Array): number } {
+  const bytes = Buffer.from(text, 'utf8')
+  let at = 0
+  return {
+    read(buf: Uint8Array): number {
+      if (at === bytes.length || 0 === buf.length) return 0
+      buf[0] = bytes[at++]
+      return 1
+    },
+  }
+}
+
+// The parses of a document from a reader: under the engine's own window,
+// and under a window of one character, which every token meets the edge of.
+const READS: [string, (tn: any, source: string) => any][] = [
+  ['from a reader', (tn, source) => tn.parseReader(bytewise(source))],
+  [
+    'from a reader under a window of one character',
+    (tn, source) =>
+      tn.parseReaderWithSizes(bytewise(source), { margin: 1, block: 1, chunk: 1 }),
+  ],
+]
+
+// The code a parse fails with, or undefined where it does not fail.
+function codeOf(parse: () => any): string | undefined {
+  try {
+    parse()
+    return undefined
+  } catch (e: any) {
+    return String(e?.code)
+  }
 }
 
 function label(c: ZigCase): string {
@@ -131,6 +171,8 @@ function runCorpus(title: string, census: Census, ...path: string[]) {
   }
 
   describe(title, () => {
+    // One parser that declares the window, for the reads from a reader.
+    const windowed = make(OPTS)
     const doc = JSON.parse(readFileSync(file, 'utf8'))
     const cases: ZigCase[] = doc.cases
     assert.ok(Array.isArray(cases) && 0 < cases.length, 'corpus has no cases')
@@ -153,6 +195,9 @@ function runCorpus(title: string, census: Census, ...path: string[]) {
         test(label(c), () => {
           const tn = new Tabnas().use(jsonic).use(Zon, OPTS)
           assert.deepStrictEqual(canon(tn.parse(c.source)), c.value)
+          for (const [how, read] of READS) {
+            assert.deepStrictEqual(canon(read(windowed, c.source)), c.value, how)
+          }
         })
       }
     })
@@ -173,6 +218,10 @@ function runCorpus(title: string, census: Census, ...path: string[]) {
             `accepted as ${JSON.stringify(canon(got))} an input zig rejects ` +
             `(${c.error}):\n${c.source}`,
           )
+          const code = codeOf(() => tn.parse(c.source))
+          for (const [how, read] of READS) {
+            assert.equal(codeOf(() => read(windowed, c.source)), code, how)
+          }
         })
       }
     })

@@ -310,12 +310,24 @@ func (o ZonOptions) toMap() map[string]any {
 
 // MakeJsonic returns a reusable Jsonic instance configured for ZON parsing.
 // Use this when parsing multiple ZON strings with the same options.
+//
+// It declares lex.window, so that a source read from a reader
+// (Tabnas.ParseReader) is read a window at a time rather than whole (admin
+// ADR-30): the matchers Zon installs read the source only through the
+// lexer's window, and jsonic's base reads it through the window too
+// (jsonic 0.7.11). The window is declared on the parser this package makes
+// whole, and not in Zon, which a host may install beneath matchers of its
+// own. It is declared on jsonic's base before Zon is installed, as
+// json5's Make declares it, since SetOptions applies the installed
+// plugins again, and Zon installs itself once.
 func MakeJsonic(opts ...ZonOptions) *tabnas.Tabnas {
 	j := jsonic.Make()
 	var m map[string]any
 	if len(opts) > 0 {
 		m = opts[0].toMap()
 	}
+	yes := true
+	j.SetOptions(tabnas.Options{Lex: &tabnas.LexOptions{Window: &yes}})
 	if err := j.UseDefaults(Zon, Defaults, m); err != nil {
 		// Plugin registration errors are programming errors with static
 		// inputs; surface them via panic rather than silent misbehavior.
@@ -348,6 +360,61 @@ func Parse(src string, opts ...ZonOptions) (any, error) {
 	return MakeJsonic(opts...).Parse(src)
 }
 
+// source reads the text of the token being cut through the lexer's window,
+// so that a parse from a reader may hold a window of the source rather than
+// all of it (lex.window, admin ADR-30). While a token is cut, lex.Src is the
+// window's text and the cursor counts from the window's start, and the
+// window may end inside the token. Every read here goes through has, which
+// reads the window on where a read would pass its end, asking it to reach
+// twice as far past the token's start as has been read, so a long token
+// costs its length and not its square; the text it held keeps its
+// positions, since the window drops nothing while a token is cut. So every
+// read is of the text the whole source has at that place. In a whole text
+// Lex.Fill only answers. The matchers that read through it run before every
+// engine matcher (orders 1e5 to 1.5e5), so reading the window on here never
+// hides from a matcher of the same cut what it would read.
+type source struct {
+	lex  *tabnas.Lex
+	from int // the cursor: where the token being cut starts
+}
+
+func sourceAt(lex *tabnas.Lex) *source {
+	return &source{lex: lex, from: lex.Cursor().SI}
+}
+
+// has reports whether the source has byte i. The window holds whole
+// characters, so a character whose first byte is held is held whole.
+func (s *source) has(i int) bool {
+	if i < len(s.lex.Src) {
+		return true
+	}
+	read := i - s.from
+	s.lex.Fill(max(read+1, 2*read))
+	return i < len(s.lex.Src)
+}
+
+// at is byte i, or 0 past the end of the source; a read that must tell a
+// NUL from the end asks has first.
+func (s *source) at(i int) byte {
+	if s.has(i) {
+		return s.lex.Src[i]
+	}
+	return 0
+}
+
+// text is the source from byte a to byte b, cut at the end of the source.
+func (s *source) text(a, b int) string {
+	return s.lex.Src[a:s.cap(b)]
+}
+
+// cap is end, or the end of the source where it ends sooner.
+func (s *source) cap(end int) int {
+	if end <= 0 || s.has(end-1) {
+		return end
+	}
+	return len(s.lex.Src)
+}
+
 // Custom lex matcher for `.`-prefixed tokens:
 //
 //	`.{`           -> #OB if followed by `.ident =`, else #OS
@@ -359,9 +426,9 @@ func buildZonDotMatcher() tabnas.MakeLexMatcher {
 	return func(cfg *tabnas.LexConfig, _ *tabnas.Options) tabnas.LexMatcher {
 		return func(lex *tabnas.Lex, _ *tabnas.Rule) *tabnas.Token {
 			pnt := lex.Cursor()
-			src := lex.Src
+			src := sourceAt(lex)
 			sI := pnt.SI
-			if sI >= len(src) || src[sI] != '.' {
+			if !src.has(sI) || src.at(sI) != '.' {
 				return nil
 			}
 
@@ -376,12 +443,12 @@ func buildZonDotMatcher() tabnas.MakeLexMatcher {
 			}
 
 			// `.{` opens a struct literal. Decide map vs list by peeking.
-			if dI < len(src) && src[dI] == '{' {
+			if src.has(dI) && src.at(dI) == '{' {
 				var tkn *tabnas.Token
 				if peekIsMapOpen(cfg, src, dI+1) {
-					tkn = lex.Token("#OB", tabnas.TinOB, nil, src[sI:dI+1])
+					tkn = lex.Token("#OB", tabnas.TinOB, nil, src.text(sI, dI+1))
 				} else {
-					tkn = lex.Token("#OS", tabnas.TinOS, nil, src[sI:dI+1])
+					tkn = lex.Token("#OS", tabnas.TinOS, nil, src.text(sI, dI+1))
 				}
 				advance(dI + 1)
 				return tkn
@@ -389,7 +456,7 @@ func buildZonDotMatcher() tabnas.MakeLexMatcher {
 
 			// `.@"..."` - escaped identifier: any string may name a field or
 			// an enum literal. Zig rejects an empty one and one with a NUL.
-			if dI+1 < len(src) && src[dI] == '@' && src[dI+1] == '"' {
+			if src.has(dI+1) && src.at(dI) == '@' && src.at(dI+1) == '"' {
 				val, end, ok := decodeZigString(src, dI+2)
 				if !ok || val == "" || strings.IndexByte(val, 0) >= 0 {
 					bad := dI + 2
@@ -398,22 +465,22 @@ func buildZonDotMatcher() tabnas.MakeLexMatcher {
 					}
 					return zonBad(lex, "zon_ident", src, sI, bad)
 				}
-				tkn := lex.Token("#TX", tabnas.TinTX, val, src[sI:end])
+				tkn := lex.Token("#TX", tabnas.TinTX, val, src.text(sI, end))
 				tkn.Use = map[string]any{"zonEnum": true}
 				advance(end)
 				return tkn
 			}
 
 			// `.identifier` - field name or enum literal.
-			if dI >= len(src) || !isIdStart(src[dI]) {
+			if !src.has(dI) || !isIdStart(src.at(dI)) {
 				return nil
 			}
 			eI := dI
-			for eI < len(src) && isIdCont(src[eI]) {
+			for src.has(eI) && isIdCont(src.at(eI)) {
 				eI++
 			}
 
-			tkn := lex.Token("#TX", tabnas.TinTX, src[dI:eI], src[sI:eI])
+			tkn := lex.Token("#TX", tabnas.TinTX, src.text(dI, eI), src.text(sI, eI))
 			tkn.Use = map[string]any{"zonEnum": true}
 			advance(eI)
 			return tkn
@@ -421,19 +488,15 @@ func buildZonDotMatcher() tabnas.MakeLexMatcher {
 	}
 }
 
-// zonBad builds a #BD error token spanning src[start:end], so the error
-// message can quote the whole offending literal ({src}).
-func zonBad(lex *tabnas.Lex, code, src string, start, end int) *tabnas.Token {
-	if end > len(src) {
-		end = len(src)
-	}
+// zonBad builds a #BD error token spanning the source from start to end,
+// cut at the end of the source and never empty, so the error message can
+// quote the whole offending literal ({src}).
+func zonBad(lex *tabnas.Lex, code string, src *source, start, end int) *tabnas.Token {
+	end = src.cap(end)
 	if end <= start {
-		end = start + 1
-		if end > len(src) {
-			end = len(src)
-		}
+		end = src.cap(start + 1)
 	}
-	tkn := lex.Token("#BD", tabnas.TinBD, nil, src[start:end])
+	tkn := lex.Token("#BD", tabnas.TinBD, nil, src.text(start, end))
 	tkn.Err = code
 	tkn.Why = code
 	return tkn
@@ -443,7 +506,7 @@ func zonBad(lex *tabnas.Lex, code, src string, start, end int) *tabnas.Token {
 // past the opening quote), returning the value, the index just past the
 // closing quote, and whether the literal was well formed. The `.@"..."`
 // identifier form, which Zig lexes with the same rules as a string.
-func decodeZigString(src string, i int) (string, int, bool) {
+func decodeZigString(src *source, i int) (string, int, bool) {
 	val, end, fault := scanZigString(src, i)
 	return val, end, fault == nil
 }
@@ -476,7 +539,7 @@ type stringFault struct {
 // and an ill-formed sequence becomes one U+FFFD per maximal subpart (see
 // lossyUTF8). A raw control character, a line end included, is not a
 // string character.
-func scanZigString(src string, start int) (string, int, *stringFault) {
+func scanZigString(src *source, start int) (string, int, *stringFault) {
 	var b strings.Builder
 	// The bytes of consecutive `\xNN` escapes, decoded together.
 	var pending []byte
@@ -487,14 +550,12 @@ func scanZigString(src string, start int) (string, int, *stringFault) {
 		}
 	}
 	fault := func(code string, end int) (string, int, *stringFault) {
-		if end > len(src) {
-			end = len(src)
-		}
+		end = src.cap(end)
 		return "", end, &stringFault{code: code, end: end}
 	}
 	i := start
-	for i < len(src) {
-		c := src[i]
+	for src.has(i) {
+		c := src.at(i)
 		switch {
 		case c == '"':
 			flush()
@@ -509,10 +570,10 @@ func scanZigString(src string, start int) (string, int, *stringFault) {
 			i++
 			continue
 		}
-		if i+1 >= len(src) {
+		if !src.has(i + 1) {
 			return fault("unterminated_string", i+1)
 		}
-		switch e := src[i+1]; e {
+		switch e := src.at(i + 1); e {
 		case 'n':
 			flush()
 			b.WriteByte('\n')
@@ -530,28 +591,28 @@ func scanZigString(src string, start int) (string, int, *stringFault) {
 			b.WriteByte(e)
 			i += 2
 		case 'x':
-			if i+4 > len(src) || !isHex(src[i+2:i+4]) {
+			if !src.has(i+3) || !isHex(src.text(i+2, i+4)) {
 				return fault("invalid_ascii", i+4)
 			}
-			n, err := strconv.ParseUint(src[i+2:i+4], 16, 8)
+			n, err := strconv.ParseUint(src.text(i+2, i+4), 16, 8)
 			if err != nil {
 				return fault("invalid_ascii", i+4)
 			}
 			pending = append(pending, byte(n))
 			i += 4
 		case 'u':
-			if i+2 >= len(src) || src[i+2] != '{' {
+			if !src.has(i+2) || src.at(i+2) != '{' {
 				return fault("invalid_unicode", i+3)
 			}
 			close := i + 3
-			for close < len(src) && isHex(src[close:close+1]) {
+			for src.has(close) && digitVal(src.at(close)) >= 0 {
 				close++
 			}
-			if close == i+3 || close >= len(src) || src[close] != '}' {
+			if close == i+3 || !src.has(close) || src.at(close) != '}' {
 				return fault("invalid_unicode", close+1)
 			}
 			// A literal too long for a uint64 is above U+10FFFF too.
-			n, err := strconv.ParseUint(src[i+3:close], 16, 64)
+			n, err := strconv.ParseUint(src.text(i+3, close), 16, 64)
 			if err != nil || n > 0x10ffff || (0xd800 <= n && n <= 0xdfff) {
 				return fault("invalid_unicode", close+1)
 			}
@@ -562,7 +623,7 @@ func scanZigString(src string, start int) (string, int, *stringFault) {
 			return fault("unexpected", i+2)
 		}
 	}
-	return fault("unterminated_string", len(src))
+	return fault("unterminated_string", i)
 }
 
 // lossyUTF8 decodes bytes as UTF-8, substituting U+FFFD for each MAXIMAL
@@ -634,18 +695,18 @@ func buildZonStringMatcher() tabnas.MakeLexMatcher {
 	return func(_ *tabnas.LexConfig, _ *tabnas.Options) tabnas.LexMatcher {
 		return func(lex *tabnas.Lex, _ *tabnas.Rule) *tabnas.Token {
 			pnt := lex.Cursor()
-			src := lex.Src
+			src := sourceAt(lex)
 			sI := pnt.SI
-			if sI >= len(src) || src[sI] != '"' {
+			if !src.has(sI) || src.at(sI) != '"' {
 				return nil
 			}
 			val, end, fault := scanZigString(src, sI+1)
 			if fault != nil {
 				return zonBad(lex, fault.code, src, sI, fault.end)
 			}
-			tkn := lex.Token("#ST", tabnas.TinST, val, src[sI:end])
+			tkn := lex.Token("#ST", tabnas.TinST, val, src.text(sI, end))
 			pnt.SI = end
-			pnt.CI += utf8.RuneCountInString(src[sI:end])
+			pnt.CI += utf8.RuneCountInString(src.text(sI, end))
 			return tkn
 		}
 	}
@@ -654,42 +715,42 @@ func buildZonStringMatcher() tabnas.MakeLexMatcher {
 // peekIsMapOpen returns true if the source position inside `.{ ... }` begins
 // with a field name (`.ident` or `.@"..."`) followed by `=`, meaning a
 // struct/map literal rather than a tuple.
-func peekIsMapOpen(cfg *tabnas.LexConfig, src string, start int) bool {
+func peekIsMapOpen(cfg *tabnas.LexConfig, src *source, start int) bool {
 	i := skipInsig(cfg, src, start)
-	if i >= len(src) || src[i] != '.' {
+	if !src.has(i) || src.at(i) != '.' {
 		return false
 	}
 	i = skipInsig(cfg, src, i+1)
-	if i+1 < len(src) && src[i] == '@' && src[i+1] == '"' {
+	if src.has(i+1) && src.at(i) == '@' && src.at(i+1) == '"' {
 		_, end, ok := decodeZigString(src, i+2)
 		if !ok {
 			return false
 		}
 		i = end
 	} else {
-		if i >= len(src) || !isIdStart(src[i]) {
+		if !src.has(i) || !isIdStart(src.at(i)) {
 			return false
 		}
 		i++
-		for i < len(src) && isIdCont(src[i]) {
+		for src.has(i) && isIdCont(src.at(i)) {
 			i++
 		}
 	}
 	i = skipInsig(cfg, src, i)
-	return i < len(src) && src[i] == '='
+	return src.has(i) && src.at(i) == '='
 }
 
 // skipInsig advances past whitespace, newlines, and `//` line comments.
-func skipInsig(cfg *tabnas.LexConfig, src string, i int) int {
+func skipInsig(cfg *tabnas.LexConfig, src *source, i int) int {
 	out, _, _ := skipInsigPos(cfg, src, i, 1, 1)
 	return out
 }
 
 // skipInsigPos is skipInsig with row/column tracking, so a token that follows
 // an insignificant run still reports an accurate source position.
-func skipInsigPos(cfg *tabnas.LexConfig, src string, i, rI, cI int) (int, int, int) {
-	for i < len(src) {
-		c := src[i]
+func skipInsigPos(cfg *tabnas.LexConfig, src *source, i, rI, cI int) (int, int, int) {
+	for src.has(i) {
+		c := src.at(i)
 		if cfg.LineChars[rune(c)] {
 			if cfg.RowChars[rune(c)] {
 				rI++
@@ -699,8 +760,8 @@ func skipInsigPos(cfg *tabnas.LexConfig, src string, i, rI, cI int) (int, int, i
 		} else if c == ' ' || c == '\t' {
 			i++
 			cI++
-		} else if c == '/' && i+1 < len(src) && src[i+1] == '/' {
-			for i < len(src) && !cfg.LineChars[rune(src[i])] {
+		} else if c == '/' && src.has(i+1) && src.at(i+1) == '/' {
+			for src.has(i) && !cfg.LineChars[rune(src.at(i))] {
 				i++
 				cI++
 			}
@@ -739,8 +800,8 @@ func buildZonMultiStringMatcher() tabnas.MakeLexMatcher {
 	return func(cfg *tabnas.LexConfig, _ *tabnas.Options) tabnas.LexMatcher {
 		return func(lex *tabnas.Lex, _ *tabnas.Rule) *tabnas.Token {
 			pnt := lex.Cursor()
-			src := lex.Src
-			if pnt.SI+1 >= len(src) || src[pnt.SI] != '\\' || src[pnt.SI+1] != '\\' {
+			src := sourceAt(lex)
+			if !src.has(pnt.SI+1) || src.at(pnt.SI) != '\\' || src.at(pnt.SI+1) != '\\' {
 				return nil
 			}
 
@@ -750,22 +811,22 @@ func buildZonMultiStringMatcher() tabnas.MakeLexMatcher {
 			rI := pnt.RI
 			var parts []string
 
-			for sI+1 < len(src) && src[sI] == '\\' && src[sI+1] == '\\' {
+			for src.has(sI+1) && src.at(sI) == '\\' && src.at(sI+1) == '\\' {
 				sI += 2
 				lineStart := sI
-				for sI < len(src) && !cfg.LineChars[rune(src[sI])] {
+				for src.has(sI) && !cfg.LineChars[rune(src.at(sI))] {
 					sI++
 				}
-				parts = append(parts, src[lineStart:sI])
+				parts = append(parts, src.text(lineStart, sI))
 
 				// Consume line terminator (handle \r\n as one).
-				if sI < len(src) && cfg.LineChars[rune(src[sI])] {
-					ch := src[sI]
+				if src.has(sI) && cfg.LineChars[rune(src.at(sI))] {
+					ch := src.at(sI)
 					if cfg.RowChars[rune(ch)] {
 						rI++
 					}
 					sI++
-					if sI < len(src) && ch == '\r' && src[sI] == '\n' {
+					if src.has(sI) && ch == '\r' && src.at(sI) == '\n' {
 						sI++
 					}
 				}
@@ -777,8 +838,8 @@ func buildZonMultiStringMatcher() tabnas.MakeLexMatcher {
 				// ending it.
 				peek := sI
 				peekR := 0
-				for peek < len(src) {
-					pc := src[peek]
+				for src.has(peek) {
+					pc := src.at(peek)
 					if pc == ' ' || pc == '\t' {
 						peek++
 					} else if cfg.LineChars[rune(pc)] {
@@ -790,7 +851,7 @@ func buildZonMultiStringMatcher() tabnas.MakeLexMatcher {
 						break
 					}
 				}
-				if peek+1 >= len(src) || src[peek] != '\\' || src[peek+1] != '\\' {
+				if !src.has(peek+1) || src.at(peek) != '\\' || src.at(peek+1) != '\\' {
 					break
 				}
 				sI = peek
@@ -798,7 +859,7 @@ func buildZonMultiStringMatcher() tabnas.MakeLexMatcher {
 			}
 
 			val := strings.Join(parts, "\n")
-			tsrc := src[startI:sI]
+			tsrc := src.text(startI, sI)
 			tkn := lex.Token("#ST", tabnas.TinST, val, tsrc)
 			pnt.SI = sI
 			pnt.RI = rI
@@ -816,25 +877,25 @@ func buildZonCharMatcher(charAsNumber bool) tabnas.MakeLexMatcher {
 	return func(_ *tabnas.LexConfig, _ *tabnas.Options) tabnas.LexMatcher {
 		return func(lex *tabnas.Lex, _ *tabnas.Rule) *tabnas.Token {
 			pnt := lex.Cursor()
-			src := lex.Src
+			src := sourceAt(lex)
 			sI := pnt.SI
-			if sI >= len(src) || src[sI] != '\'' {
+			if !src.has(sI) || src.at(sI) != '\'' {
 				return nil
 			}
 
 			i := sI + 1
-			if i >= len(src) {
+			if !src.has(i) {
 				return nil
 			}
 
 			var codepoint int
 
-			if src[i] == '\\' {
+			if src.at(i) == '\\' {
 				i++
-				if i >= len(src) {
+				if !src.has(i) {
 					return nil
 				}
-				switch src[i] {
+				switch src.at(i) {
 				case 'n':
 					codepoint = '\n'
 					i++
@@ -858,10 +919,10 @@ func buildZonCharMatcher(charAsNumber bool) tabnas.MakeLexMatcher {
 				// character: '0'".
 				case 'x':
 					i++
-					if i+2 > len(src) {
+					if !src.has(i + 1) {
 						return nil
 					}
-					hex := src[i : i+2]
+					hex := src.text(i, i+2)
 					if !isHex(hex) {
 						return nil
 					}
@@ -873,16 +934,22 @@ func buildZonCharMatcher(charAsNumber bool) tabnas.MakeLexMatcher {
 					i += 2
 				case 'u':
 					i++
-					if i >= len(src) || src[i] != '{' {
+					if !src.has(i) || src.at(i) != '{' {
 						return nil
 					}
 					i++
-					end := strings.IndexByte(src[i:], '}')
-					if end < 0 {
+					// The hex digits and the `}` they end on. A run that ends
+					// on anything else is no character literal: the first `}`
+					// after `{`, wherever it is, closes a run that is not all
+					// hex digits.
+					end := i
+					for src.has(end) && digitVal(src.at(end)) >= 0 {
+						end++
+					}
+					if !src.has(end) || src.at(end) != '}' {
 						return nil
 					}
-					end += i
-					hex := src[i:end]
+					hex := src.text(i, end)
 					if !isHex(hex) {
 						return nil
 					}
@@ -903,8 +970,8 @@ func buildZonCharMatcher(charAsNumber bool) tabnas.MakeLexMatcher {
 				default:
 					return nil
 				}
-			} else if src[i] != '\'' {
-				r, size := utf8.DecodeRuneInString(src[i:])
+			} else if src.at(i) != '\'' {
+				r, size := utf8.DecodeRuneInString(src.text(i, i+utf8.UTFMax))
 				if r == utf8.RuneError && size <= 1 {
 					return nil
 				}
@@ -919,7 +986,7 @@ func buildZonCharMatcher(charAsNumber bool) tabnas.MakeLexMatcher {
 				return nil
 			}
 
-			if i >= len(src) || src[i] != '\'' {
+			if !src.has(i) || src.at(i) != '\'' {
 				return nil
 			}
 			i++
@@ -930,7 +997,7 @@ func buildZonCharMatcher(charAsNumber bool) tabnas.MakeLexMatcher {
 			} else {
 				val = string(rune(codepoint))
 			}
-			tsrc := src[sI:i]
+			tsrc := src.text(sI, i)
 			tkn := lex.Token("#NR", tabnas.TinNR, val, tsrc)
 			pnt.SI = i
 			pnt.CI += i - sI
@@ -946,13 +1013,13 @@ func buildZonDocCommentMatcher() tabnas.MakeLexMatcher {
 	return func(_ *tabnas.LexConfig, _ *tabnas.Options) tabnas.LexMatcher {
 		return func(lex *tabnas.Lex, _ *tabnas.Rule) *tabnas.Token {
 			pnt := lex.Cursor()
-			src := lex.Src
+			src := sourceAt(lex)
 			sI := pnt.SI
-			if sI+2 >= len(src) || src[sI] != '/' || src[sI+1] != '/' {
+			if !src.has(sI+2) || src.at(sI) != '/' || src.at(sI+1) != '/' {
 				return nil
 			}
-			c := src[sI+2]
-			if c == '!' || (c == '/' && (sI+3 >= len(src) || src[sI+3] != '/')) {
+			c := src.at(sI + 2)
+			if c == '!' || (c == '/' && (!src.has(sI+3) || src.at(sI+3) != '/')) {
 				return zonBad(lex, "zon_doc_comment", src, sI, sI+3)
 			}
 			return nil
@@ -973,31 +1040,31 @@ func buildZonNumberMatcher() tabnas.MakeLexMatcher {
 	return func(_ *tabnas.LexConfig, _ *tabnas.Options) tabnas.LexMatcher {
 		return func(lex *tabnas.Lex, _ *tabnas.Rule) *tabnas.Token {
 			pnt := lex.Cursor()
-			src := lex.Src
+			src := sourceAt(lex)
 			sI := pnt.SI
-			if sI >= len(src) {
+			if !src.has(sI) {
 				return nil
 			}
 
 			i := sI
 			neg := false
-			if src[i] == '-' {
+			if src.at(i) == '-' {
 				neg = true
 				i++
-				for i < len(src) && (src[i] == ' ' || src[i] == '\t') {
+				for src.has(i) && (src.at(i) == ' ' || src.at(i) == '\t') {
 					i++
 				}
 			}
-			if i >= len(src) {
+			if !src.has(i) {
 				return nil
 			}
 
 			// The `inf` / `nan` keywords. Zig allows `-inf` but not `-nan`.
-			if c := src[i]; c == 'i' || c == 'n' {
-				if i+3 <= len(src) {
-					kw := src[i : i+3]
+			if c := src.at(i); c == 'i' || c == 'n' {
+				if src.has(i + 2) {
+					kw := src.text(i, i+3)
 					if (kw == "inf" || kw == "nan") &&
-						(i+3 >= len(src) || !isIdCont(src[i+3])) {
+						(!src.has(i+3) || !isIdCont(src.at(i+3))) {
 						if kw == "nan" && neg {
 							return zonBad(lex, "zon_number", src, sI, i+3)
 						}
@@ -1012,7 +1079,7 @@ func buildZonNumberMatcher() tabnas.MakeLexMatcher {
 							val = math.NaN()
 						}
 						end := i + 3
-						tkn := lex.Token("#NR", tabnas.TinNR, val, src[sI:end])
+						tkn := lex.Token("#NR", tabnas.TinNR, val, src.text(sI, end))
 						pnt.SI = end
 						pnt.CI += end - sI
 						return tkn
@@ -1021,7 +1088,7 @@ func buildZonNumberMatcher() tabnas.MakeLexMatcher {
 				return nil
 			}
 
-			if !isDigit(src[i]) {
+			if !isDigit(src.at(i)) {
 				return nil
 			}
 
@@ -1053,7 +1120,7 @@ func buildZonNumberMatcher() tabnas.MakeLexMatcher {
 			}
 
 			end := num.end
-			tkn := lex.Token("#NR", tabnas.TinNR, val, src[sI:end])
+			tkn := lex.Token("#NR", tabnas.TinNR, val, src.text(sI, end))
 			pnt.SI = end
 			pnt.CI += end - sI
 			return tkn
@@ -1070,15 +1137,15 @@ type zonNumScan struct {
 
 // scanZonNumber scans one unsigned Zig numeric literal starting at `start`
 // (a digit). On failure the returned end spans the whole malformed literal.
-func scanZonNumber(src string, start int) (zonNumScan, bool) {
+func scanZonNumber(src *source, start int) (zonNumScan, bool) {
 	i := start
 	base := 10
 	fail := func() (zonNumScan, bool) {
 		return zonNumScan{end: scanNumTokenEnd(src, start)}, false
 	}
 
-	if src[i] == '0' && i+1 < len(src) {
-		switch c1 := src[i+1]; c1 {
+	if src.at(i) == '0' && src.has(i+1) {
+		switch c1 := src.at(i + 1); c1 {
 		case 'x':
 			base, i = 16, i+2
 		case 'o':
@@ -1098,15 +1165,15 @@ func scanZonNumber(src string, start int) (zonNumScan, bool) {
 	if bad {
 		return fail()
 	}
-	intText := strings.ReplaceAll(src[i:intEnd], "_", "")
+	intText := strings.ReplaceAll(src.text(i, intEnd), "_", "")
 	i = intEnd
 
 	isFloat := false
 	fracText := ""
-	if i < len(src) && src[i] == '.' {
+	if src.has(i) && src.at(i) == '.' {
 		startsFrac := false
-		if i+1 < len(src) {
-			after := src[i+1]
+		if src.has(i + 1) {
+			after := src.at(i + 1)
 			dv := digitVal(after)
 			// A `.` only starts a fraction when a digit of this base, or this
 			// base's exponent letter, follows; otherwise the number ends here
@@ -1127,7 +1194,7 @@ func scanZonNumber(src string, start int) (zonNumScan, bool) {
 			if fbad {
 				return fail()
 			}
-			fracText = strings.ReplaceAll(src[i:fracEnd], "_", "")
+			fracText = strings.ReplaceAll(src.text(i, fracEnd), "_", "")
 			i = fracEnd
 		}
 	}
@@ -1140,13 +1207,13 @@ func scanZonNumber(src string, start int) (zonNumScan, bool) {
 	} else if base == 10 {
 		expChars = "eE"
 	}
-	if expChars != "" && i < len(src) && strings.IndexByte(expChars, src[i]) >= 0 {
+	if expChars != "" && src.has(i) && strings.IndexByte(expChars, src.at(i)) >= 0 {
 		hasExp = true
 		isFloat = true
 		i++
 		expSign := 1
-		if i < len(src) && (src[i] == '+' || src[i] == '-') {
-			if src[i] == '-' {
+		if src.has(i) && (src.at(i) == '+' || src.at(i) == '-') {
+			if src.at(i) == '-' {
 				expSign = -1
 			}
 			i++
@@ -1155,7 +1222,7 @@ func scanZonNumber(src string, start int) (zonNumScan, bool) {
 		if ebad || expCount == 0 {
 			return fail()
 		}
-		n, err := strconv.Atoi(strings.ReplaceAll(src[i:expEnd], "_", ""))
+		n, err := strconv.Atoi(strings.ReplaceAll(src.text(i, expEnd), "_", ""))
 		if err != nil {
 			return fail()
 		}
@@ -1168,7 +1235,7 @@ func scanZonNumber(src string, start int) (zonNumScan, bool) {
 	}
 
 	// Anything alphanumeric still attached is a digit invalid for this base.
-	if i < len(src) && isIdCont(src[i]) {
+	if src.has(i) && isIdCont(src.at(i)) {
 		return fail()
 	}
 
@@ -1219,12 +1286,12 @@ func scanZonNumber(src string, start int) (zonNumScan, bool) {
 // scanDigitRun scans a run of `base` digits with Zig's digit-separator rules:
 // a `_` must sit directly between two digits (no leading, trailing, or
 // repeated `_`). Returns the end index, the digit count, and a bad flag.
-func scanDigitRun(src string, i, base int) (int, int, bool) {
+func scanDigitRun(src *source, i, base int) (int, int, bool) {
 	start := i
 	count := 0
 	prevDigit := false
-	for ; i < len(src); i++ {
-		ch := src[i]
+	for ; src.has(i); i++ {
+		ch := src.at(i)
 		if ch == '_' {
 			if !prevDigit {
 				return i, count, true
@@ -1248,11 +1315,11 @@ func scanDigitRun(src string, i, base int) (int, int, bool) {
 
 // scanNumTokenEnd returns the greedy extent of a malformed numeric token, so
 // the error span covers the whole literal rather than its first character.
-func scanNumTokenEnd(src string, i int) int {
-	for i < len(src) {
-		if isIdCont(src[i]) {
+func scanNumTokenEnd(src *source, i int) int {
+	for src.has(i) {
+		if isIdCont(src.at(i)) {
 			i++
-		} else if src[i] == '.' && i+1 < len(src) && isIdCont(src[i+1]) {
+		} else if src.at(i) == '.' && src.has(i+1) && isIdCont(src.at(i+1)) {
 			i++
 		} else {
 			break

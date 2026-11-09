@@ -11,7 +11,11 @@
 //! switched off besides) and `zonDocComment` sees `//!` and `///` before
 //! the comment matcher eats them.
 //!
-//! Every matcher works on [`Lexer::remaining`] by byte index. The only
+//! Every matcher reads the text the lexer holds, from the cursor, by byte
+//! index, through [`Text`]: in a parse from a reader that is the window,
+//! which may end inside the token (`lex.window`, admin ADR-30), and a cut
+//! that read past its end is made again over a window read on twice as
+//! far ([`windowed`]), so it is the cut the whole source gives. The only
 //! non-ASCII bytes any of them cares about are whole characters (a raw
 //! character literal, the body of a string or a `.@"..."` identifier),
 //! and those are decoded as characters; everything else is compared
@@ -19,6 +23,8 @@
 //! it is used to slice. Cursor advancement goes through [`Lexer::advance_chars`], which
 //! keeps the row and column honest across the newlines a token may span,
 //! the bookkeeping the TypeScript `advance` helpers do by hand.
+
+use std::cell::Cell;
 
 use indexmap::IndexMap;
 use tabnas::{Context, Lexer, Rule, Tabnas, Token, Value, TIN_NR, TIN_OB, TIN_OS, TIN_ST, TIN_TX};
@@ -49,6 +55,136 @@ pub(crate) fn register(parser: &mut Tabnas, char_as_number: bool) {
     parser.imperative_lex_match_ref(NUMBER, number_matcher);
     parser.imperative_lex_match_ref(DOC_COMMENT, doc_comment_matcher);
     parser.imperative_lex_match_ref(STRING, string_matcher);
+}
+
+// ---------------------------------------------------------------------------
+// Reading through the window
+// ---------------------------------------------------------------------------
+
+/// The text the lexer holds from the cursor, as a matcher reads it: the
+/// whole source, or in a parse from a reader the window, which may end
+/// inside the token. A read past what it holds answers as the end of the
+/// source would, and notes that the text may be short ([`Text::is_short`]),
+/// so that [`windowed`] makes the cut again over a wider window.
+pub(crate) struct Text<'a> {
+    text: &'a str,
+    short: Cell<bool>,
+}
+
+impl<'a> Text<'a> {
+    pub(crate) fn new(text: &'a str) -> Self {
+        Text {
+            text,
+            short: Cell::new(false),
+        }
+    }
+
+    /// Whether a read passed the end of the text.
+    fn is_short(&self) -> bool {
+        self.short.get()
+    }
+
+    /// Byte `i`, or `None` past what the text holds.
+    pub(crate) fn byte(&self, i: usize) -> Option<u8> {
+        let found = self.text.as_bytes().get(i).copied();
+        if found.is_none() {
+            self.short.set(true);
+        }
+        found
+    }
+
+    /// The text from byte `a` to byte `b`, or `None` where it ends sooner
+    /// or the span is not on character boundaries.
+    pub(crate) fn get(&self, a: usize, b: usize) -> Option<&'a str> {
+        if b > self.text.len() {
+            self.short.set(true);
+            return None;
+        }
+        self.text.get(a..b)
+    }
+
+    /// The text from byte `a` to byte `b`, which the caller has read.
+    pub(crate) fn slice(&self, a: usize, b: usize) -> &'a str {
+        &self.text[a..b]
+    }
+
+    /// `end`, or the end of the text where it ends sooner.
+    pub(crate) fn cap(&self, end: usize) -> usize {
+        if end > self.text.len() {
+            self.short.set(true);
+            return self.text.len();
+        }
+        end
+    }
+
+    /// The character starting at byte `i`.
+    pub(crate) fn char_at(&self, i: usize) -> Option<char> {
+        self.byte(i)?;
+        self.text[i..].chars().next()
+    }
+
+    /// Whether the text holds `pattern` at byte `i`.
+    pub(crate) fn holds(&self, i: usize, pattern: &[u8]) -> bool {
+        pattern
+            .iter()
+            .enumerate()
+            .all(|(k, &b)| self.byte(i + k) == Some(b))
+    }
+}
+
+/// What a matcher found at the cursor.
+enum Cut {
+    /// No token of this matcher's starts here.
+    None,
+    /// A token over the first `len` bytes.
+    Emit {
+        name: &'static str,
+        tin: tabnas::Tin,
+        value: Value,
+        len: usize,
+        enum_mark: bool,
+    },
+    /// A fault, quoting the byte span `start..end`.
+    Bad {
+        code: &'static str,
+        start: usize,
+        end: usize,
+    },
+}
+
+/// Run a matcher's `cut` over the text the lexer holds. Where the cut
+/// read past the window's end, the window is read on to twice what it
+/// held, so a long token costs its length to read and not its square, and
+/// the cut is made again, until no read passes the window's end or the
+/// source has ended: the cut the whole source gives. The matchers run
+/// before every engine matcher (orders 1e5 to 1.5e5), so reading the
+/// window on here never hides from a matcher of the same cut what it
+/// would read. In a whole text the window is all of it.
+fn windowed(lexer: &mut Lexer<'_>, cut: impl Fn(&Text<'_>) -> Cut) -> Option<Token> {
+    loop {
+        let window = lexer.window();
+        let text = Text::new(window);
+        let found = cut(&text);
+        if text.is_short() {
+            let held = window.chars().count();
+            let before = window.len();
+            lexer.fill(held.saturating_mul(2).max(held + 1));
+            if lexer.window().len() > before {
+                continue;
+            }
+        }
+        return match found {
+            Cut::None => None,
+            Cut::Emit {
+                name,
+                tin,
+                value,
+                len,
+                enum_mark,
+            } => Some(emit(lexer, name, tin, value, len, enum_mark)),
+            Cut::Bad { code, start, end } => Some(bad(lexer, code, start, end)),
+        };
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -106,14 +242,12 @@ fn bad(lexer: &Lexer<'_>, code: &str, start: usize, end: usize) -> Token {
 /// returning where the next significant byte starts. Zig's tokenizer
 /// emits `.` and what follows as separate tokens, so any of this may sit
 /// between them (`. foo`, `. {}`).
-fn skip_insig(src: &str, mut i: usize, line_chars: &str) -> usize {
-    let bytes = src.as_bytes();
-    while i < bytes.len() {
-        let c = bytes[i];
+fn skip_insig(text: &Text<'_>, mut i: usize, line_chars: &str) -> usize {
+    while let Some(c) = text.byte(i) {
         if is_line(line_chars, c) || c == b' ' || c == b'\t' {
             i += 1;
-        } else if c == b'/' && bytes.get(i + 1) == Some(&b'/') {
-            while i < bytes.len() && !is_line(line_chars, bytes[i]) {
+        } else if c == b'/' && text.byte(i + 1) == Some(b'/') {
+            while text.byte(i).is_some_and(|c| !is_line(line_chars, c)) {
                 i += 1;
             }
         } else {
@@ -133,85 +267,110 @@ fn skip_insig(src: &str, mut i: usize, line_chars: &str) -> usize {
 /// - `.identifier` is `#TX` with the dot stripped and the enum mark set;
 /// - `.@"any name"` is `#TX` holding the decoded string, likewise marked.
 fn dot_matcher(lexer: &mut Lexer<'_>, _rule: &mut Rule, context: &mut Context) -> Option<Token> {
-    let line_chars = &context.options.line.chars;
-    let remaining = lexer.remaining();
-    let bytes = remaining.as_bytes();
-    if bytes.first() != Some(&b'.') {
-        return None;
+    let line_chars = context.options.line.chars.as_str();
+    windowed(lexer, |text| cut_dot(text, line_chars))
+}
+
+fn cut_dot(text: &Text<'_>, line_chars: &str) -> Cut {
+    if text.byte(0) != Some(b'.') {
+        return Cut::None;
     }
-    let d = skip_insig(remaining, 1, line_chars);
-    let at_d = bytes.get(d).copied();
-    let at_d1 = bytes.get(d + 1).copied();
+    let d = skip_insig(text, 1, line_chars);
+    let at_d = text.byte(d);
 
     // `.{` opens a struct literal. Decide map vs list by peeking ahead.
     if at_d == Some(b'{') {
-        let (name, tin) = if peek_is_map_open(remaining, d + 1, line_chars) {
+        let (name, tin) = if peek_is_map_open(text, d + 1, line_chars) {
             ("#OB", TIN_OB)
         } else {
             ("#OS", TIN_OS)
         };
-        return Some(emit(lexer, name, tin, Value::Undefined, d + 1, false));
+        return Cut::Emit {
+            name,
+            tin,
+            value: Value::Undefined,
+            len: d + 1,
+            enum_mark: false,
+        };
     }
 
     // `.@"..."`: any string may name a field or an enum literal. Zig
     // rejects an empty one and one containing a NUL.
-    if at_d == Some(b'@') && at_d1 == Some(b'"') {
-        return Some(match decode_zig_string(remaining, d + 2) {
-            Some((value, end)) if !value.is_empty() && !value.contains('\0') => {
-                emit(lexer, "#TX", TIN_TX, Value::String(value), end, true)
-            }
-            Some((_, end)) => bad(lexer, "zon_ident", 0, end),
-            None => bad(lexer, "zon_ident", 0, d + 2),
-        });
+    if at_d == Some(b'@') && text.byte(d + 1) == Some(b'"') {
+        return match decode_zig_string(text, d + 2) {
+            Some((value, end)) if !value.is_empty() && !value.contains('\0') => Cut::Emit {
+                name: "#TX",
+                tin: TIN_TX,
+                value: Value::String(value),
+                len: end,
+                enum_mark: true,
+            },
+            Some((_, end)) => Cut::Bad {
+                code: "zon_ident",
+                start: 0,
+                end,
+            },
+            None => Cut::Bad {
+                code: "zon_ident",
+                start: 0,
+                end: d + 2,
+            },
+        };
     }
 
     // `.identifier`: field name or enum literal.
-    let first = at_d?;
+    let Some(first) = at_d else {
+        return Cut::None;
+    };
     if !is_id_start(first) {
-        return None;
+        return Cut::None;
     }
     let mut e = d;
-    while e < bytes.len() && is_id_cont(bytes[e]) {
+    while text.byte(e).is_some_and(is_id_cont) {
         e += 1;
     }
-    let name = remaining[d..e].to_string();
-    Some(emit(lexer, "#TX", TIN_TX, Value::String(name), e, true))
+    Cut::Emit {
+        name: "#TX",
+        tin: TIN_TX,
+        value: Value::String(text.slice(d, e).to_string()),
+        len: e,
+        enum_mark: true,
+    }
 }
 
 /// Whether the source inside `.{ ... }`, from byte `start`, begins with a
 /// field name (`.ident` or `.@"..."`) followed by `=`: a struct literal
 /// rather than a tuple.
-fn peek_is_map_open(src: &str, start: usize, line_chars: &str) -> bool {
-    let bytes = src.as_bytes();
-    let mut i = skip_insig(src, start, line_chars);
-    if bytes.get(i) != Some(&b'.') {
+fn peek_is_map_open(text: &Text<'_>, start: usize, line_chars: &str) -> bool {
+    let mut i = skip_insig(text, start, line_chars);
+    if text.byte(i) != Some(b'.') {
         return false;
     }
-    i = skip_insig(src, i + 1, line_chars);
-    if bytes.get(i) == Some(&b'@') && bytes.get(i + 1) == Some(&b'"') {
-        match decode_zig_string(src, i + 2) {
+    i = skip_insig(text, i + 1, line_chars);
+    if text.byte(i) == Some(b'@') && text.byte(i + 1) == Some(b'"') {
+        match decode_zig_string(text, i + 2) {
             Some((_, end)) => i = end,
             None => return false,
         }
     } else {
-        if !bytes.get(i).is_some_and(|&c| is_id_start(c)) {
+        if !text.byte(i).is_some_and(is_id_start) {
             return false;
         }
         i += 1;
-        while i < bytes.len() && is_id_cont(bytes[i]) {
+        while text.byte(i).is_some_and(is_id_cont) {
             i += 1;
         }
     }
-    i = skip_insig(src, i, line_chars);
-    bytes.get(i) == Some(&b'=')
+    i = skip_insig(text, i, line_chars);
+    text.byte(i) == Some(b'=')
 }
 
 /// Decode a Zig double-quoted string body starting at byte `i`, just past
 /// the opening quote: the decoded value and the byte just past the closing
 /// quote, or `None` when the literal is malformed. The `.@"..."`
 /// identifier form, which Zig lexes with the same rules as a string.
-fn decode_zig_string(src: &str, i: usize) -> Option<(String, usize)> {
-    scan_zig_string(src, i).ok()
+fn decode_zig_string(text: &Text<'_>, i: usize) -> Option<(String, usize)> {
+    scan_zig_string(text, i).ok()
 }
 
 /// Why a `"..."` body failed to decode: the ENGINE's error code for the
@@ -243,8 +402,7 @@ struct StringFault {
 /// one U+FFFD per maximal subpart, as `String::from_utf8_lossy` decodes
 /// it. A raw control character, a line end included, is not a string
 /// character.
-fn scan_zig_string(src: &str, start: usize) -> Result<(String, usize), StringFault> {
-    let bytes = src.as_bytes();
+fn scan_zig_string(text: &Text<'_>, start: usize) -> Result<(String, usize), StringFault> {
     let mut out = String::new();
     // The bytes of consecutive `\xNN` escapes, decoded together.
     let mut pending: Vec<u8> = Vec::new();
@@ -256,11 +414,11 @@ fn scan_zig_string(src: &str, start: usize) -> Result<(String, usize), StringFau
     };
     let fault = |code: &'static str, end: usize| StringFault {
         code,
-        end: end.min(bytes.len()),
+        end: text.cap(end),
     };
     let mut i = start;
-    while i < bytes.len() {
-        match bytes[i] {
+    while let Some(c) = text.byte(i) {
+        match c {
             b'"' => {
                 flush(&mut out, &mut pending);
                 return Ok((out, i + 1));
@@ -268,11 +426,11 @@ fn scan_zig_string(src: &str, start: usize) -> Result<(String, usize), StringFau
             b'\n' | b'\r' => return Err(fault("unterminated_string", i)),
             c if c < 0x20 || c == 0x7f => return Err(fault("unprintable", i + 1)),
             b'\\' => {
-                let Some(&escape) = bytes.get(i + 1) else {
+                let Some(escape) = text.byte(i + 1) else {
                     return Err(fault("unterminated_string", i + 1));
                 };
                 match escape {
-                    b'x' => match src.get(i + 2..i + 4).filter(|hex| is_hex(hex)) {
+                    b'x' => match text.get(i + 2, i + 4).filter(|hex| is_hex(hex)) {
                         Some(hex) => {
                             pending.push(u8::from_str_radix(hex, 16).expect("two hex digits"));
                             i += 4;
@@ -280,18 +438,18 @@ fn scan_zig_string(src: &str, start: usize) -> Result<(String, usize), StringFau
                         None => return Err(fault("invalid_ascii", i + 4)),
                     },
                     b'u' => {
-                        if bytes.get(i + 2) != Some(&b'{') {
+                        if text.byte(i + 2) != Some(b'{') {
                             return Err(fault("invalid_unicode", i + 3));
                         }
                         let mut close = i + 3;
-                        while close < bytes.len() && bytes[close].is_ascii_hexdigit() {
+                        while text.byte(close).is_some_and(|c| c.is_ascii_hexdigit()) {
                             close += 1;
                         }
-                        if close == i + 3 || bytes.get(close) != Some(&b'}') {
+                        if close == i + 3 || text.byte(close) != Some(b'}') {
                             return Err(fault("invalid_unicode", close + 1));
                         }
                         // A literal too long for a u32 is above U+10FFFF too.
-                        let scalar = u32::from_str_radix(&src[i + 3..close], 16)
+                        let scalar = u32::from_str_radix(text.slice(i + 3, close), 16)
                             .ok()
                             .filter(|&cp| is_scalar_value(cp));
                         let Some(code_point) = scalar else {
@@ -316,13 +474,13 @@ fn scan_zig_string(src: &str, start: usize) -> Result<(String, usize), StringFau
             }
             _ => {
                 flush(&mut out, &mut pending);
-                let c = src[i..].chars().next().expect("a character boundary");
+                let c = text.char_at(i).expect("a character boundary");
                 out.push(c);
                 i += c.len_utf8();
             }
         }
     }
-    Err(fault("unterminated_string", bytes.len()))
+    Err(fault("unterminated_string", i))
 }
 
 /// Whether `code_point` is a Unicode SCALAR value: at most U+10FFFF and
@@ -358,14 +516,27 @@ fn string_matcher(
     _rule: &mut Rule,
     _context: &mut Context,
 ) -> Option<Token> {
-    let remaining = lexer.remaining();
-    if remaining.as_bytes().first() != Some(&b'"') {
-        return None;
+    windowed(lexer, cut_string)
+}
+
+fn cut_string(text: &Text<'_>) -> Cut {
+    if text.byte(0) != Some(b'"') {
+        return Cut::None;
     }
-    Some(match scan_zig_string(remaining, 1) {
-        Ok((value, end)) => emit(lexer, "#ST", TIN_ST, Value::String(value), end, false),
-        Err(fault) => bad(lexer, fault.code, 0, fault.end),
-    })
+    match scan_zig_string(text, 1) {
+        Ok((value, end)) => Cut::Emit {
+            name: "#ST",
+            tin: TIN_ST,
+            value: Value::String(value),
+            len: end,
+            enum_mark: false,
+        },
+        Err(fault) => Cut::Bad {
+            code: fault.code,
+            start: 0,
+            end: fault.end,
+        },
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -382,50 +553,54 @@ fn multi_string_matcher(
     _rule: &mut Rule,
     context: &mut Context,
 ) -> Option<Token> {
-    let line_chars = &context.options.line.chars;
-    let remaining = lexer.remaining();
-    let bytes = remaining.as_bytes();
-    if !bytes.starts_with(b"\\\\") {
-        return None;
+    let line_chars = context.options.line.chars.as_str();
+    windowed(lexer, |text| cut_multi_string(text, line_chars))
+}
+
+fn cut_multi_string(text: &Text<'_>, line_chars: &str) -> Cut {
+    if !text.holds(0, b"\\\\") {
+        return Cut::None;
     }
 
     let mut s = 0;
     let mut parts: Vec<&str> = Vec::new();
-    while bytes[s..].starts_with(b"\\\\") {
+    while text.holds(s, b"\\\\") {
         s += 2;
         let line_start = s;
-        while s < bytes.len() && !is_line(line_chars, bytes[s]) {
+        while text.byte(s).is_some_and(|c| !is_line(line_chars, c)) {
             s += 1;
         }
-        parts.push(&remaining[line_start..s]);
+        parts.push(text.slice(line_start, s));
 
         // Consume the line terminator, `\r\n` as one.
-        if s < bytes.len() && is_line(line_chars, bytes[s]) {
-            let c = bytes[s];
+        if let Some(c) = text.byte(s).filter(|&c| is_line(line_chars, c)) {
             s += 1;
-            if c == b'\r' && bytes.get(s) == Some(&b'\n') {
+            if c == b'\r' && text.byte(s) == Some(b'\n') {
                 s += 1;
             }
         }
 
         // Look for another `\\` continuation past blank lines.
         let mut peek = s;
-        while peek < bytes.len() {
-            let c = bytes[peek];
-            if c == b' ' || c == b'\t' || is_line(line_chars, c) {
-                peek += 1;
-            } else {
-                break;
-            }
+        while text
+            .byte(peek)
+            .is_some_and(|c| c == b' ' || c == b'\t' || is_line(line_chars, c))
+        {
+            peek += 1;
         }
-        if !bytes[peek..].starts_with(b"\\\\") {
+        if !text.holds(peek, b"\\\\") {
             break;
         }
         s = peek;
     }
 
-    let value = parts.join("\n");
-    Some(emit(lexer, "#ST", TIN_ST, Value::String(value), s, false))
+    Cut::Emit {
+        name: "#ST",
+        tin: TIN_ST,
+        value: Value::String(parts.join("\n")),
+        len: s,
+        enum_mark: false,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -439,18 +614,23 @@ fn multi_string_matcher(
 /// 216 and `'\u{D800}'` is 55296, so neither goes through
 /// [`scan_zig_string`].
 fn char_matcher(lexer: &mut Lexer<'_>, char_as_number: bool) -> Option<Token> {
-    let remaining = lexer.remaining();
-    let bytes = remaining.as_bytes();
-    if bytes.first() != Some(&b'\'') {
-        return None;
+    windowed(lexer, |text| cut_char(text, char_as_number))
+}
+
+fn cut_char(text: &Text<'_>, char_as_number: bool) -> Cut {
+    if text.byte(0) != Some(b'\'') {
+        return Cut::None;
     }
 
     let mut i = 1;
     let code_point: u32;
-    match bytes.get(i).copied() {
+    match text.byte(i) {
         Some(b'\\') => {
             i += 1;
-            match bytes.get(i).copied()? {
+            let Some(escape) = text.byte(i) else {
+                return Cut::None;
+            };
+            match escape {
                 b'n' => {
                     code_point = 10;
                     i += 1;
@@ -480,23 +660,32 @@ fn char_matcher(lexer: &mut Lexer<'_>, char_as_number: bool) -> Option<Token> {
                 // "invalid escape character: '0'".
                 b'x' => {
                     i += 1;
-                    let hex = remaining.get(i..i + 2)?;
-                    if !is_hex(hex) {
-                        return None;
-                    }
-                    code_point = u32::from_str_radix(hex, 16).ok()?;
+                    let Some(hex) = text.get(i, i + 2).filter(|hex| is_hex(hex)) else {
+                        return Cut::None;
+                    };
+                    code_point = u32::from_str_radix(hex, 16).expect("two hex digits");
                     i += 2;
                 }
                 b'u' => {
                     i += 1;
-                    if bytes.get(i) != Some(&b'{') {
-                        return None;
+                    if text.byte(i) != Some(b'{') {
+                        return Cut::None;
                     }
                     i += 1;
-                    let close = remaining.get(i..)?.find('}')? + i;
-                    let hex = &remaining[i..close];
+                    // The hex digits and the `}` they end on. A run that
+                    // ends on anything else is no character literal: the
+                    // first `}` after `{`, wherever it is, closes a run that
+                    // is not all hex digits.
+                    let mut close = i;
+                    while text.byte(close).is_some_and(|c| c.is_ascii_hexdigit()) {
+                        close += 1;
+                    }
+                    if text.byte(close) != Some(b'}') {
+                        return Cut::None;
+                    }
+                    let hex = text.slice(i, close);
                     if !is_hex(hex) {
-                        return None;
+                        return Cut::None;
                     }
                     // Zig: a character literal is an INTEGER, so the
                     // escape names a code point rather than a scalar
@@ -510,28 +699,40 @@ fn char_matcher(lexer: &mut Lexer<'_>, char_as_number: bool) -> Option<Token> {
                     // A number too big for u32 is above U+10FFFF too.
                     match u32::from_str_radix(hex, 16) {
                         Ok(cp) if cp <= 0x10ffff => code_point = cp,
-                        _ => return Some(bad(lexer, "zon_char", 0, close + 2)),
+                        _ => {
+                            return Cut::Bad {
+                                code: "zon_char",
+                                start: 0,
+                                end: text.cap(close + 2),
+                            }
+                        }
                     }
                     i = close + 1;
                 }
-                _ => return None,
+                _ => return Cut::None,
             }
         }
-        Some(b'\'') | None => return None,
+        Some(b'\'') | None => return Cut::None,
         Some(_) => {
-            let c = remaining[i..].chars().next()?;
+            let Some(c) = text.char_at(i) else {
+                return Cut::None;
+            };
             code_point = c as u32;
             // A raw control character (notably a literal newline) is not
             // a character literal in Zig: it is an invalid token.
             if code_point < 0x20 || code_point == 0x7f {
-                return Some(bad(lexer, "zon_char", 0, i + 1));
+                return Cut::Bad {
+                    code: "zon_char",
+                    start: 0,
+                    end: i + 1,
+                };
             }
             i += c.len_utf8();
         }
     }
 
-    if bytes.get(i) != Some(&b'\'') {
-        return None;
+    if text.byte(i) != Some(b'\'') {
+        return Cut::None;
     }
     i += 1;
 
@@ -540,7 +741,13 @@ fn char_matcher(lexer: &mut Lexer<'_>, char_as_number: bool) -> Option<Token> {
     } else {
         Value::String(char_of(code_point).to_string())
     };
-    Some(emit(lexer, "#NR", TIN_NR, value, i, false))
+    Cut::Emit {
+        name: "#NR",
+        tin: TIN_NR,
+        value,
+        len: i,
+        enum_mark: false,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -556,15 +763,24 @@ fn doc_comment_matcher(
     _rule: &mut Rule,
     _context: &mut Context,
 ) -> Option<Token> {
-    let bytes = lexer.remaining().as_bytes();
-    if bytes.len() < 3 || !bytes.starts_with(b"//") {
-        return None;
+    windowed(lexer, cut_doc_comment)
+}
+
+fn cut_doc_comment(text: &Text<'_>) -> Cut {
+    if !text.holds(0, b"//") {
+        return Cut::None;
     }
-    let c = bytes[2];
-    if c == b'!' || (c == b'/' && bytes.get(3) != Some(&b'/')) {
-        return Some(bad(lexer, "zon_doc_comment", 0, 3));
+    let Some(c) = text.byte(2) else {
+        return Cut::None;
+    };
+    if c == b'!' || (c == b'/' && text.byte(3) != Some(b'/')) {
+        return Cut::Bad {
+            code: "zon_doc_comment",
+            start: 0,
+            end: 3,
+        };
     }
-    None
+    Cut::None
 }
 
 // ---------------------------------------------------------------------------
@@ -581,66 +797,72 @@ fn number_matcher(
     _rule: &mut Rule,
     _context: &mut Context,
 ) -> Option<Token> {
-    let remaining = lexer.remaining();
-    let bytes = remaining.as_bytes();
+    windowed(lexer, cut_number)
+}
+
+fn cut_number(text: &Text<'_>) -> Cut {
+    let number = |value: Value, len: usize| Cut::Emit {
+        name: "#NR",
+        tin: TIN_NR,
+        value,
+        len,
+        enum_mark: false,
+    };
+    let fault = |end: usize| Cut::Bad {
+        code: "zon_number",
+        start: 0,
+        end,
+    };
 
     let mut i = 0;
     let mut neg = false;
-    if bytes.first() == Some(&b'-') {
+    if text.byte(0) == Some(b'-') {
         neg = true;
         i = 1;
-        while matches!(bytes.get(i), Some(b' ' | b'\t')) {
+        while matches!(text.byte(i), Some(b' ' | b'\t')) {
             i += 1;
         }
     }
-    let c = bytes.get(i).copied()?;
+    let Some(c) = text.byte(i) else {
+        return Cut::None;
+    };
 
     if c == b'i' || c == b'n' {
-        if let Some(keyword) = remaining.get(i..i + 3) {
-            if (keyword == "inf" || keyword == "nan")
-                && !bytes.get(i + 3).is_some_and(|&c| is_id_cont(c))
-            {
+        if let Some(keyword) = text.get(i, i + 3) {
+            if (keyword == "inf" || keyword == "nan") && !text.byte(i + 3).is_some_and(is_id_cont) {
                 if keyword == "nan" && neg {
-                    return Some(bad(lexer, "zon_number", 0, i + 3));
+                    return fault(i + 3);
                 }
                 let value = match (keyword, neg) {
                     ("inf", false) => f64::INFINITY,
                     ("inf", true) => f64::NEG_INFINITY,
                     _ => f64::NAN,
                 };
-                return Some(emit(
-                    lexer,
-                    "#NR",
-                    TIN_NR,
-                    Value::Number(value),
-                    i + 3,
-                    false,
-                ));
+                return number(Value::Number(value), i + 3);
             }
         }
-        return None;
+        return Cut::None;
     }
 
     if !c.is_ascii_digit() {
-        return None;
+        return Cut::None;
     }
 
-    match number::scan(remaining, i) {
-        Err(end) => Some(bad(lexer, "zon_number", 0, end)),
+    match number::scan(text, i) {
+        Err(end) => fault(end),
         Ok(Scanned::Int { end, big }) => {
             // Zig: `-0` is an ambiguous integer literal (`-0.0` is fine).
             if neg && big.is_zero() {
-                return Some(bad(lexer, "zon_number", 0, end));
+                return fault(end);
             }
             let value = match big.to_f64_exact() {
                 Some(exact) => Value::Number(if neg { -exact } else { exact }),
                 None => big_value(neg, &big),
             };
-            Some(emit(lexer, "#NR", TIN_NR, value, end, false))
+            number(value, end)
         }
         Ok(Scanned::Float { end, value }) => {
-            let value = if neg { -value } else { value };
-            Some(emit(lexer, "#NR", TIN_NR, Value::Number(value), end, false))
+            number(Value::Number(if neg { -value } else { value }), end)
         }
     }
 }

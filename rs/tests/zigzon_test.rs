@@ -26,18 +26,25 @@
 // `ts/test/zigzon.test.ts` and `go/zigzon_test.go` run the identical
 // corpora, so the three runtimes cannot drift.
 //
+// Every document is graded from a reader as well as from its text: read a
+// byte at a time through `make_with`, which declares `lex.window`, under
+// the engine's own window and under a window of one character, a valid
+// document must parse to the same reference value, and an invalid one must
+// be rejected with the code its text is (`reader_test.rs`).
+//
 // Do not shrink a corpus, add a skip list, or loosen the comparison to make
 // the number look better: it is a measuring instrument.
 
 mod common;
 
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Once;
 
 use serde::Deserialize;
-use tabnas::Value;
+use tabnas::{Tabnas, TabnasError, Value, WindowSizes};
 use tabnas_zon::{make_with, ZonOptions};
 
 use common::{integral_numbers, repo_root};
@@ -153,6 +160,43 @@ fn zig_canon(value: &Value) -> serde_json::Value {
     }
 }
 
+/// A reader that hands its bytes over one at a time.
+struct Bytewise<'a>(&'a [u8]);
+
+impl Read for Bytewise<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match (self.0.split_first(), buf.first_mut()) {
+            (Some((&byte, rest)), Some(slot)) => {
+                *slot = byte;
+                self.0 = rest;
+                Ok(1)
+            }
+            _ => Ok(0),
+        }
+    }
+}
+
+/// The parses of a document from a reader, a byte at a time: under the
+/// engine's own window, and under a window of one character, which every
+/// token meets the edge of.
+fn reads(parser: &Tabnas, source: &str) -> [(&'static str, Result<Value, TabnasError>); 2] {
+    let one = WindowSizes {
+        margin: 1,
+        block: 1,
+        chunk: 1,
+    };
+    [
+        (
+            "from a reader",
+            parser.parse_reader(Bytewise(source.as_bytes())),
+        ),
+        (
+            "from a reader under a window of one character",
+            parser.parse_reader_with_sizes(Bytewise(source.as_bytes()), one),
+        ),
+    ]
+}
+
 fn label(case: &ZigCase) -> String {
     let one = case.source.split_whitespace().collect::<Vec<_>>().join(" ");
     let short = if 60 < one.chars().count() {
@@ -217,17 +261,32 @@ fn run_zig_corpus(path: PathBuf, want_valid: usize, want_invalid: usize) {
     for case in &corpus.cases {
         let result = parser.parse(&case.source);
         if !case.valid {
-            if let Ok(got) = result {
-                failures.push(format!(
+            match &result {
+                Ok(got) => failures.push(format!(
                     "{}: accepted as {} a document zig rejects ({}):\n{}",
                     label(case),
-                    zig_canon(&got),
+                    zig_canon(got),
                     case.error,
                     case.source
-                ));
+                )),
+                Err(error) => {
+                    for (how, read) in reads(&parser, &case.source) {
+                        match read {
+                            Err(read) if read.code == error.code => {}
+                            read => failures.push(format!(
+                                "{}: {how}, {:?} where the text is {}:\n{}",
+                                label(case),
+                                read.map(|got| zig_canon(&got)),
+                                error.code,
+                                case.source
+                            )),
+                        }
+                    }
+                }
             }
             continue;
         }
+        let want = integral_numbers(case.value.clone());
         match result {
             Err(error) => failures.push(format!(
                 "{}: rejected a document zig accepts:\n{}\n{error}",
@@ -236,13 +295,27 @@ fn run_zig_corpus(path: PathBuf, want_valid: usize, want_invalid: usize) {
             )),
             Ok(got) => {
                 let got = integral_numbers(zig_canon(&got));
-                let want = integral_numbers(case.value.clone());
                 if got != want {
                     failures.push(format!(
                         "{}: value mismatch\n  got  {got}\n  want {want}",
                         label(case)
                     ));
                 }
+            }
+        }
+        for (how, read) in reads(&parser, &case.source) {
+            match read {
+                Ok(got) if integral_numbers(zig_canon(&got)) == want => {}
+                Ok(got) => failures.push(format!(
+                    "{}: value mismatch {how}\n  got  {}\n  want {want}",
+                    label(case),
+                    integral_numbers(zig_canon(&got))
+                )),
+                Err(error) => failures.push(format!(
+                    "{}: rejected {how} a document zig accepts:\n{}\n{error}",
+                    label(case),
+                    case.source
+                )),
             }
         }
     }

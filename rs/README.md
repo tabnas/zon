@@ -46,7 +46,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 `parse` reuses one shared instance. Build your own with `make`, or with
 `make_with` and typed options, and reuse it: building the grammar
-dominates a parse.
+dominates a parse. Both declare `lex.window`, so `parse_reader` reads a
+reader a window at a time rather than whole. The matchers this crate
+installs read the source only through the lexer's window. The plugin
+alone declares nothing, since a host may install it beneath matchers of
+its own.
 
 ```rust
 fn main() -> Result<(), Box<dyn std::error::Error>> {

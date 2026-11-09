@@ -603,7 +603,16 @@ pub fn plugin() -> Plugin {
 }
 
 /// Build a ZON parser with the given options: the counterpart of the Go
-/// `MakeJsonic(opts)` and of `new Tabnas().use(jsonic).use(Zon, opts)`.
+/// `MakeJsonic(opts)` and of the TypeScript `make(opts)`, which is
+/// `new Tabnas().use(jsonic).use(Zon, opts)`.
+///
+/// It declares `lex.window`, so that [`Tabnas::parse_reader`] reads a
+/// reader a window at a time rather than whole (admin ADR-30): the
+/// matchers this crate installs read the source only through the lexer's
+/// window, and jsonic's base is the engine's own matchers. The window is
+/// declared here, on the parser this crate makes whole, and not in
+/// [`zon`] or [`plugin`], which a host may install beneath matchers of
+/// its own.
 ///
 /// Reuse the result: building the grammar dominates a parse.
 ///
@@ -626,6 +635,9 @@ pub fn make_with(options: &ZonOptions) -> Tabnas {
     parser
         .use_plugin(plugin(), Some(options.to_value()))
         .expect("the zon grammar documents are fixed and valid");
+    parser
+        .set_options(|options| options.lex.window = true)
+        .expect("lex.window sets");
     parser
 }
 
