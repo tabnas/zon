@@ -60,8 +60,8 @@ panics rather than misbehaving silently.
 `MakeJsonic` also declares `lex.window`, so a parse from a reader through
 the engine's `ParseReader` reads the reader a window at a time rather than
 whole. The matchers this plugin installs read the source only through the
-lexer's window. `Zon` alone declares nothing, since a host may install it
-beneath matchers of its own.
+window the lexer holds. `Zon` alone declares nothing, since a host may
+install it beneath matchers of its own.
 
 ### `func Zon(j *tabnas.Tabnas, options map[string]any) error`
 

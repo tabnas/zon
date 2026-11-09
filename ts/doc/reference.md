@@ -73,8 +73,8 @@ Builds the engine whole, as `new Tabnas().use(jsonic).use(Zon, options)`
 builds it, and declares `lex.window` on it. A parse from a reader through
 the engine's `parseReader` then reads the reader a window at a time rather
 than whole. The matchers this plugin installs read the source only through
-the lexer's window. The plugin alone declares nothing, since a host may
-install it beneath matchers of its own.
+the window the lexer holds. The plugin alone declares nothing, since a host
+may install it beneath matchers of its own.
 
 ```js
 import { make } from '@tabnas/zon'
