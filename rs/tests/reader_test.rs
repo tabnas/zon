@@ -397,7 +397,9 @@ fn make_reads_a_reader_a_window_at_a_time() {
     assert!(make_with(&zig()).options.lex.window);
     // The plugin leaves the window to the parser that installs it, since a
     // host may install it beneath matchers of its own.
-    let mut parser = tabnas_jsonic::make();
+    // jsonic's base declares the window itself (tabnas/jsonic#121), so the
+    // plugin goes on that base with the window turned off.
+    let mut parser = tabnas_jsonic::make_with(|options| options.lex.window = false);
     parser
         .use_plugin(tabnas_zon::plugin(), None)
         .expect("the plugin installs");
