@@ -421,7 +421,7 @@ def zon-render [input]
 ` }),
   transduce: Object.freeze({ entry: "zon-transduce", source: `; ZON's transducer part: the document's JSON events from the zon
 ; grammar's rule passes (ParserEvents/1), streamed as the parser makes
-; them, so that a host that reads parser events (alchemy-cli's translate
+; them, so that a host that reads parser events (dmog's translate
 ; and run --grammar, aless) reads a ZON document through this file rather
 ; than through transduce's inference over the grammar's rule events.
 ;
@@ -436,7 +436,7 @@ def zon-render [input]
 ; The scalars are its own, since one of ZON's values the declarative form
 ; cannot take from a token: an integer no double holds, which the reader
 ; builds as the object {"$big": "<digits>"} (its Rust reader always, its
-; TypeScript and Go readers for a host that asks, as alchemy-cli's parser
+; TypeScript and Go readers for a host that asks, as dmog's parser
 ; does), is yielded as that object, one member; every other token's value
 ; as the scalar it is, a number with the lexeme it keeps where JSON spells
 ; it so (2.50 is written 2.50, 0x10 as 16), a character literal and a
@@ -444,7 +444,7 @@ def zon-render [input]
 ; its name, which is the reader's value too unless a host sets enumTag,
 ; whose wrapping is made on the node after its close and reaches no pass.
 ; Every event is the one the walk of the grammar's value gives, a number's
-; lexeme aside, which alchemy-cli's transduce.tsv runner holds it to; a
+; lexeme aside, which dmog's transduce.tsv runner holds it to; a
 ; repeated field the grammar refuses before any pass streams it.
 def zon-transduce-spec
   record
